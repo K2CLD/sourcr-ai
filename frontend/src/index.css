@@ -1,0 +1,44 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@layer base {
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #000;
+    color: #fff;
+    -webkit-font-smoothing: antialiased;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  #root {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+  input[type=number] { -moz-appearance: textfield; }
+
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #333; }
+}
+
+@keyframes spin        { to { transform: rotate(360deg); } }
+@keyframes pulse       { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+@keyframes expand      { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+@keyframes fadeIn      { from { opacity:0; } to { opacity:1; } }
+@keyframes btn-glow    {
+  0%,100% { box-shadow: 0 0 0px rgba(0,230,118,0); }
+  50%     { box-shadow: 0 0 18px rgba(0,230,118,0.35); }
+}
+
+.anim-expand    { animation: expand .18s cubic-bezier(.4,0,.2,1) forwards; }
+.anim-fade      { animation: fadeIn .2s ease forwards; }
+.anim-spin      { animation: spin .7s linear infinite; }
+.anim-pulse     { animation: pulse 2.5s ease-in-out infinite; }
+.anim-btn-glow  { animation: btn-glow 2.4s ease-in-out infinite; }
