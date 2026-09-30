@@ -17,6 +17,9 @@ logs/
 *.log
 npm-debug.log*
 
+# Runtime data
+database/keepa-cache.json
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,7 +1,10 @@
-import { useState } from 'react'
-import { analyzeLead, getSupplierSources } from '../api'
+import { useEffect, useState } from 'react'
+import { analyzeLead, getSupplierSources, scanAsin } from '../api'
 
 const GRADE_COLOR = { A: '#00e676', B: '#aaa', C: '#666', D: '#444' }
+// Amazon ASINs: 10 characters, alphanumeric. Most (not all) start with "B0" — the pattern
+// the user asked to match — so a query like "B0..." is treated as a direct ASIN lookup.
+const ASIN_PATTERN = /^B0[A-Z0-9]{8}$/i
 
 function fmt(v, pre = '') { return v != null ? `${pre}${v}` : '—' }
 
@@ -457,13 +460,41 @@ function getVal(obj, path) {
   return path ? path.split('.').reduce((o, k) => o?.[k], obj) : null
 }
 
-export default function LeadTable({ leads, loading, error }) {
+export default function LeadTable({ leads, loading, error, warning, scanOptions }) {
   const [expanded, setExpanded]     = useState(null)
   const [sortKey, setSortKey]       = useState('score')
   const [sortDir, setSortDir]       = useState(-1)
   const [search, setSearch]         = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [gradeFilter, setGrade]     = useState('All')
   const [ungateOnly, setUngateOnly] = useState(false)
+  const [asinLookup, setAsinLookup] = useState(null) // { asin, status: 'loading'|'done'|'error', lead, error }
+
+  // Debounce what actually drives filtering/lookup — the input itself stays instant
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(id)
+  }, [search])
+
+  // A query that looks like an ASIN but isn't among the currently loaded leads means the
+  // user wants to check a specific product the current scan never covered — fetch it
+  // directly rather than relying on the (empty) substring match. A keyword query, by
+  // contrast, only ever narrows the leads already on screen — there's no backend capability
+  // to run a fresh keyword-based scan against Amazon.
+  useEffect(() => {
+    const q = debouncedSearch
+    if (!ASIN_PATTERN.test(q)) { setAsinLookup(null); return }
+
+    const asin = q.toUpperCase()
+    if (leads.some(l => l.asin?.toUpperCase() === asin)) { setAsinLookup(null); return }
+
+    let cancelled = false
+    setAsinLookup({ asin, status: 'loading' })
+    scanAsin(asin, null, scanOptions)
+      .then(({ data }) => { if (!cancelled) setAsinLookup({ asin, status: 'done', lead: data }) })
+      .catch((e) => { if (!cancelled) setAsinLookup({ asin, status: 'error', error: e.response?.data?.error || 'ASIN not found' }) })
+    return () => { cancelled = true }
+  }, [debouncedSearch, leads, scanOptions])
 
   const toggleSort = (key) => {
     if (!key) return
@@ -471,12 +502,14 @@ export default function LeadTable({ leads, loading, error }) {
     else { setSortKey(key); setSortDir(-1) }
   }
 
-  const filtered = leads
+  const searchedLeads = asinLookup?.status === 'done' ? [...leads, asinLookup.lead] : leads
+
+  const filtered = searchedLeads
     .filter(l => gradeFilter === 'All' || l.grade === gradeFilter)
     .filter(l => !ungateOnly || l.ungating?.gated === false || l.ungating?.autoUngatable)
     .filter(l => {
-      if (!search) return true
-      const q = search.toLowerCase()
+      if (!debouncedSearch) return true
+      const q = debouncedSearch.toLowerCase()
       return l.asin?.toLowerCase().includes(q) || l.title?.toLowerCase().includes(q)
     })
     .slice()
@@ -518,12 +551,45 @@ export default function LeadTable({ leads, loading, error }) {
             onChange={e => setSearch(e.target.value)}
             style={{
               width: '100%', background: '#0a0a0a', border: '1px solid #222',
-              borderRadius: 4, color: '#fff', fontSize: 13, padding: '10px 14px',
+              borderRadius: 4, color: '#fff', fontSize: 13, padding: '10px 40px 10px 14px',
               outline: 'none', fontFamily: 'inherit', transition: 'border-color .15s',
             }}
             onFocus={e => { e.target.style.borderColor = '#00e676' }}
             onBlur={e => { e.target.style.borderColor = '#222' }}
           />
+          {asinLookup?.status === 'loading' && (
+            <span
+              className="anim-spin"
+              title={`Looking up ${asinLookup.asin}…`}
+              style={{
+                position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)',
+                width: 12, height: 12, borderRadius: '50%',
+                border: '1.5px solid #222', borderTopColor: '#00e676', display: 'inline-block',
+              }}
+            />
+          )}
+          {asinLookup?.status === 'error' && (
+            <span
+              title={asinLookup.error}
+              style={{
+                position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)',
+                fontSize: 14, color: '#ef4444', cursor: 'default',
+              }}
+            >
+              !
+            </span>
+          )}
+          {asinLookup?.status === 'done' && (
+            <span
+              title={`Found ${asinLookup.asin} — added below`}
+              style={{
+                position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)',
+                fontSize: 13, color: '#00e676', cursor: 'default',
+              }}
+            >
+              ✓
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 3, background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 5, padding: 3 }}>
@@ -569,14 +635,23 @@ export default function LeadTable({ leads, loading, error }) {
 
       {/* Table area */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {error && (
-          <div style={{ padding: '40px 24px', textAlign: 'center' }}>
-            <p style={{ fontSize: 13, color: '#555', marginBottom: 6 }}>Scan failed</p>
-            <p style={{ fontSize: 12, color: '#333' }}>{error}</p>
+        {!error && warning && (
+          <div style={{
+            margin: '16px 24px 0', padding: '12px 16px',
+            background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.3)', borderRadius: 4,
+          }}>
+            <p style={{ fontSize: 12, color: '#fb923c' }}>⚠ {warning}</p>
           </div>
         )}
 
-        {!error && !loading && leads.length === 0 && (
+        {error && (
+          <div style={{ margin: '24px', padding: '16px 20px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 4 }}>
+            <p style={{ fontSize: 13, color: '#ef4444', fontWeight: 600, marginBottom: 6 }}>Scan failed</p>
+            <p style={{ fontSize: 12, color: '#ef4444' }}>{error}</p>
+          </div>
+        )}
+
+        {!error && !loading && filtered.length === 0 && leads.length === 0 && !debouncedSearch && (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             flex: 1, minHeight: 320, paddingTop: '10%', paddingBottom: '8%', overflow: 'hidden',
@@ -596,6 +671,15 @@ export default function LeadTable({ leads, loading, error }) {
           </div>
         )}
 
+        {!error && !loading && filtered.length === 0 && (leads.length > 0 || debouncedSearch) && asinLookup?.status !== 'loading' && (
+          <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 6 }}>No matches</p>
+            <p style={{ fontSize: 12, color: '#333' }}>
+              {asinLookup?.status === 'error' ? asinLookup.error : 'Try a different search or adjust your filters.'}
+            </p>
+          </div>
+        )}
+
         {loading && (
           <div style={{ padding: '80px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
             <span className="anim-spin" style={{
@@ -606,7 +690,7 @@ export default function LeadTable({ leads, loading, error }) {
           </div>
         )}
 
-        {!loading && leads.length > 0 && (
+        {!loading && filtered.length > 0 && (
           <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: 64 }} />

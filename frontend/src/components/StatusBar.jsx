@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getHealth } from '../api'
+import ScanHistory from './ScanHistory'
 
-export default function StatusBar() {
+export default function StatusBar({ onLoadScan }) {
   const [ok, setOk] = useState(null)
 
   useEffect(() => {
@@ -60,7 +61,9 @@ export default function StatusBar() {
         </span>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <ScanHistory onLoad={onLoadScan} />
+
         <span
           className={ok ? 'anim-pulse' : ''}
           style={{

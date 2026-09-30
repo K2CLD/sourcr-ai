@@ -3,6 +3,7 @@ const cron = require("node-cron");
 const nodemailer = require("nodemailer");
 const { scanMultipleCategories } = require("./scanner");
 const { summarize } = require("./scorer");
+const { saveScan } = require("./supabase");
 
 const DEFAULT_CATEGORIES = ["beauty", "kitchen", "health", "toys", "pets"];
 
@@ -115,6 +116,13 @@ async function runScan(categories = DEFAULT_CATEGORIES, options = DEFAULT_SCAN_O
 
     console.log(`[Scheduler] Scan complete — ${results.length} leads found`);
     results.slice(0, 5).forEach((p) => console.log(summarize(p)));
+
+    const warning = results.partialErrors
+      ? `Some categories failed and were skipped: ${results.partialErrors.map((e) => `${e.category} (${e.message})`).join("; ")}`
+      : undefined;
+    saveScan({ categories, options, leads: results, warning }).catch((err) => {
+      console.warn(`[Supabase] Failed to auto-save scheduled scan: ${err.message}`);
+    });
 
     if (results.length > 0) {
       await sendAlert(results);

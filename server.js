@@ -18,6 +18,15 @@ const { scanCategory, scanMultipleCategories, scanSupplierProducts, scanAsin, DE
 const { runScan, startScheduler, stopScheduler, getStatus, getLastResults } = require("./backend/scheduler");
 const { analyzeLead, analyzeLeads, quickTake, findSupplierSources } = require("./backend/ai");
 const { checkUngating, hasCredentials } = require("./backend/spapi");
+const { saveScan, listScans, getScan, getScanLeads, deleteScan } = require("./backend/supabase");
+
+// Auto-save a completed scan to Supabase without holding up the response — a save
+// failure (e.g. Supabase down) shouldn't block the user from seeing their results.
+function autoSaveScan({ categories, options, leads, warning }) {
+  saveScan({ categories, options: options || {}, leads, warning }).catch((err) => {
+    console.warn(`[Supabase] Failed to auto-save scan: ${err.message}`);
+  });
+}
 
 const app = express();
 const router = express.Router();
@@ -104,7 +113,11 @@ router.post("/scan/categories", async (req, res) => {
 
   try {
     const leads = await scanMultipleCategories(categories, options);
-    res.json({ categories, count: leads.length, leads });
+    const warning = leads.partialErrors
+      ? `Some categories failed and were skipped: ${leads.partialErrors.map((e) => `${e.category} (${e.message})`).join("; ")}`
+      : undefined;
+    autoSaveScan({ categories, options, leads, warning });
+    res.json({ categories, count: leads.length, leads, ...(warning ? { warning } : {}) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -148,6 +161,7 @@ router.post("/scan/supplier", async (req, res) => {
     }
 
     const leads = await scanSupplierProducts(supplierProducts, options);
+    autoSaveScan({ categories: ["supplier"], options, leads });
     res.json({ count: leads.length, leads });
   } catch (err) {
     console.error(err);
@@ -185,6 +199,45 @@ router.post("/approval", async (req, res) => {
   try {
     const result = await checkApproval(asin);
     res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Scan history (Supabase) ───────────────────────────────────────────────────
+
+// List saved scans, newest first
+// GET /scans?limit=50
+router.get("/scans", async (req, res) => {
+  try {
+    const scans = await listScans({ limit: req.query.limit ? parseInt(req.query.limit, 10) : 50 });
+    res.json({ scans });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Load a saved scan's leads — serves entirely from Supabase, no Keepa/SP-API calls
+// GET /scans/:id
+router.get("/scans/:id", async (req, res) => {
+  try {
+    const scan = await getScan(req.params.id);
+    if (!scan) return res.status(404).json({ error: "Scan not found" });
+    const leads = await getScanLeads(req.params.id);
+    res.json({ scan, leads });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /scans/:id
+router.delete("/scans/:id", async (req, res) => {
+  try {
+    await deleteScan(req.params.id);
+    res.json({ message: "Deleted" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
