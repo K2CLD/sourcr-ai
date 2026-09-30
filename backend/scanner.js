@@ -3,6 +3,7 @@ const { batchCalculate } = require("./selleramp");
 const { scoreProducts, filterByGrade } = require("./scorer");
 const { getMatched } = require("./supplier");
 const { batchCheckUngating, batchGetSalesRanks, hasCredentials } = require("./spapi");
+const { analyzeLeads } = require("./ai");
 const keepaCache = require("./keepaCache");
 
 const KEEPA_BATCH_SIZE = 100; // Keepa's actual /product limit (was wrongly set to 20 — 5x more requests than needed)
@@ -166,8 +167,11 @@ async function scanCategory(categoryName, options = {}) {
   console.log(`[Scanner] ${leads.length} leads found in ${categoryName} — checking ungating...`);
   const withUngating = await batchCheckUngating(tagged);
 
-  console.log(`[Scanner] Ungating check complete for ${categoryName}`);
-  return withUngating;
+  console.log(`[Scanner] Running AI evaluation on ${withUngating.length} surviving leads in ${categoryName}...`);
+  const withAiAnalysis = await analyzeLeads(withUngating);
+
+  console.log(`[Scanner] Scan complete for ${categoryName}`);
+  return withAiAnalysis;
 }
 
 // Scan multiple categories sequentially and return a merged, re-ranked list.
@@ -246,7 +250,8 @@ async function scanSupplierProducts(supplierProducts, options = {}) {
     scanType: "supplier",
   }));
 
-  return batchCheckUngating(leads);
+  const withUngating = await batchCheckUngating(leads);
+  return analyzeLeads(withUngating);
 }
 
 // Quick single-ASIN analysis. `options`, when passed (e.g. the frontend's active scan

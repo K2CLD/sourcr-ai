@@ -242,11 +242,15 @@ function WhereToBuy({ lead }) {
 
 function ExpandedRow({ lead, colSpan }) {
   const pd = lead.profitData || {}
-  const [aiResult, setAiResult]   = useState(null)
+  // Leads from a scan already carry an automatic AI verdict (scanner.js runs one on every
+  // surviving candidate) — show that immediately instead of making the user click to fetch
+  // a second one. The button still works as a manual re-run (e.g. for older saved scans
+  // from before this existed, or if the automatic pass errored for this lead).
+  const [aiResult, setAiResult]   = useState(lead.aiAnalysis || null)
   const [aiLoading, setAiLoading] = useState(false)
 
   const handleAI = async () => {
-    if (aiResult || aiLoading) return
+    if ((aiResult && !aiResult.error) || aiLoading) return
     setAiLoading(true)
     try {
       const { data } = await analyzeLead(lead)
@@ -366,7 +370,7 @@ function ExpandedRow({ lead, colSpan }) {
               <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444' }}>
                 AI Analysis
               </span>
-              {!aiResult && (
+              {(!aiResult || aiResult.error) && (
                 <button
                   onClick={handleAI}
                   disabled={aiLoading}

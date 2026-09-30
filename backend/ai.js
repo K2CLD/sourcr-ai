@@ -33,6 +33,7 @@ PRICE HISTORY
   90d max:       $${lead.priceMax90 ?? "unknown"}
 
 COMPETITION
+  Seller count:  ${lead.sellerCount ?? "unknown"}
   New sellers (30d): ${lead.newSellers30d ?? 0}
   Restricted:    ${pd.restricted ? "YES" : "No"}
   Hazmat:        ${pd.hazmat ? "YES" : "No"}
