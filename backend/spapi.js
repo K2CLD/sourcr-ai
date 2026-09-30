@@ -1,8 +1,25 @@
 const axios = require("axios");
 
 const LWA_URL = "https://api.amazon.com/auth/o2/token";
-const SP_API_BASE = "https://sellingpartnerapi-na.amazon.com";
+
+// SP-API base URL varies by region — na/eu/fe map to the three SP-API endpoints
+const SP_API_HOSTS = {
+  na: "https://sellingpartnerapi-na.amazon.com",
+  eu: "https://sellingpartnerapi-eu.amazon.com",
+  fe: "https://sellingpartnerapi-fe.amazon.com",
+};
+const REGION = (process.env.SP_API_REGION || "na").toLowerCase();
+const SP_API_BASE = SP_API_HOSTS[REGION] || SP_API_HOSTS.na;
+
 const MARKETPLACE_ID = process.env.SP_API_MARKETPLACE_ID || "ATVPDKIKX0DER";
+const CATALOG_API_VERSION = "2022-04-01";
+
+// Catalog Items GetCatalogItem is rate-limited to ~2 req/sec (burst 2) — space batch calls out
+const CATALOG_RATE_LIMIT_DELAY_MS = 550;
+const MAX_RETRIES = 5;
+const RETRY_BASE_DELAY_MS = 1000;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Per-category ungating profile used as fallback when SP-API creds aren't set
 const CATEGORY_PROFILES = {
@@ -21,6 +38,7 @@ const CATEGORY_PROFILES = {
 
 let _accessToken = null;
 let _tokenExpiry = 0;
+let _tokenPromise = null; // coalesces concurrent refreshes (e.g. batch ungating + catalog lookups firing together)
 
 function hasCredentials() {
   return !!(
@@ -31,41 +49,79 @@ function hasCredentials() {
   );
 }
 
+// Retry a request on 429/503, honoring Retry-After when present and otherwise
+// backing off exponentially with jitter. Non-retryable errors pass straight through.
+async function requestWithRetry(fn, { retries = MAX_RETRIES, label = "SP-API" } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err.response?.status;
+      const retryable = status === 429 || status === 503;
+      if (!retryable || attempt >= retries) throw err;
+
+      const retryAfter = err.response?.headers?.["retry-after"];
+      const delay = retryAfter
+        ? parseFloat(retryAfter) * 1000
+        : RETRY_BASE_DELAY_MS * 2 ** attempt + Math.random() * 250;
+
+      console.warn(`[${label}] ${status} — retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${retries})`);
+      await sleep(delay);
+    }
+  }
+}
+
 async function getAccessToken() {
   if (_accessToken && Date.now() < _tokenExpiry) return _accessToken;
+  if (_tokenPromise) return _tokenPromise;
 
-  const res = await axios.post(
-    LWA_URL,
-    new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: process.env.SP_API_REFRESH_TOKEN,
-      client_id: process.env.SP_API_CLIENT_ID,
-      client_secret: process.env.SP_API_CLIENT_SECRET,
-    }),
-    { timeout: 8000 }
-  );
+  _tokenPromise = requestWithRetry(
+    () =>
+      axios.post(
+        LWA_URL,
+        new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: process.env.SP_API_REFRESH_TOKEN,
+          client_id: process.env.SP_API_CLIENT_ID,
+          client_secret: process.env.SP_API_CLIENT_SECRET,
+        }),
+        { timeout: 8000 }
+      ),
+    { label: "LWA" }
+  )
+    .then((res) => {
+      _accessToken = res.data.access_token;
+      _tokenExpiry = Date.now() + (res.data.expires_in - 60) * 1000;
+      return _accessToken;
+    })
+    .finally(() => {
+      _tokenPromise = null;
+    });
 
-  _accessToken = res.data.access_token;
-  _tokenExpiry = Date.now() + (res.data.expires_in - 60) * 1000;
-  return _accessToken;
+  return _tokenPromise;
 }
 
 async function checkViaSpApi(asin) {
   const token = await getAccessToken();
 
-  const res = await axios.get(`${SP_API_BASE}/listings/2021-08-01/restrictions`, {
-    params: {
-      asin,
-      sellerId: process.env.SP_API_SELLER_ID,
-      marketplaceIds: MARKETPLACE_ID,
-      conditionType: "new",
-    },
-    headers: {
-      "x-amz-access-token": token,
-      "x-amz-date": new Date().toISOString().replace(/[:-]/g, "").split(".")[0] + "Z",
-    },
-    timeout: 10000,
-  });
+  const res = await requestWithRetry(() =>
+    axios.get(`${SP_API_BASE}/listings/2021-08-01/restrictions`, {
+      params: {
+        asin,
+        sellerId: process.env.SP_API_SELLER_ID,
+        marketplaceIds: MARKETPLACE_ID,
+        // Amazon rejects "new"/"New" with 400 InvalidInput — the Listings
+        // Restrictions API uses compound condition values (new_new,
+        // used_good, collectible_like_new, ...), confirmed via a live call.
+        conditionType: "new_new",
+      },
+      headers: {
+        "x-amz-access-token": token,
+        "x-amz-date": new Date().toISOString().replace(/[:-]/g, "").split(".")[0] + "Z",
+      },
+      timeout: 10000,
+    })
+  );
 
   const restrictions = res.data.restrictions || [];
 
@@ -93,6 +149,76 @@ async function checkViaSpApi(asin) {
     approvalUrl: approvalLink?.resource || null,
     notes: restrictions[0]?.reasons?.[0]?.message || "Restricted",
   };
+}
+
+// ─── Catalog Items — sales rank (BSR) lookup ──────────────────────────────────
+
+async function getCatalogItem(asin) {
+  const token = await getAccessToken();
+
+  const res = await requestWithRetry(() =>
+    axios.get(`${SP_API_BASE}/catalog/${CATALOG_API_VERSION}/items/${asin}`, {
+      params: {
+        marketplaceIds: MARKETPLACE_ID,
+        includedData: "salesRanks",
+      },
+      headers: { "x-amz-access-token": token },
+      timeout: 10000,
+    })
+  );
+
+  return res.data;
+}
+
+// Pull the primary (lowest/most specific classification) sales rank out of a
+// Catalog Items response. displayGroupRanks (e.g. "home_garden_display_on_website")
+// is preferred over classificationRanks since it matches what shoppers/BSR badges show.
+function extractSalesRank(catalogItem) {
+  const entry = catalogItem?.salesRanks?.find((r) => r.marketplaceId === MARKETPLACE_ID) || catalogItem?.salesRanks?.[0];
+  if (!entry) return null;
+
+  const rank = entry.displayGroupRanks?.[0]?.rank ?? entry.classificationRanks?.[0]?.rank;
+  return rank > 0 ? rank : null;
+}
+
+// Look up current BSR for a single ASIN via Catalog Items. Returns null (not throw)
+// on failure so batch callers can fall back to another source per-ASIN.
+async function getSalesRank(asin) {
+  try {
+    const item = await getCatalogItem(asin);
+    return extractSalesRank(item);
+  } catch (err) {
+    console.warn(`[SP-API] Catalog Items lookup failed for ${asin}: ${err.message}`);
+    return null;
+  }
+}
+
+// Look up BSR for many ASINs, respecting Catalog Items' ~2 req/sec rate limit.
+// Returns a { asin: bsr | null } map — callers decide how to fall back on nulls.
+// Bails out of the whole batch on a 401 (bad/expired credentials, not a per-item issue) —
+// every remaining call would fail the same way, so there's no point paying the rate-limit
+// sleep + round trip for each one.
+async function batchGetSalesRanks(asins) {
+  const results = {};
+
+  for (let i = 0; i < asins.length; i++) {
+    const asin = asins[i];
+    try {
+      const item = await getCatalogItem(asin);
+      results[asin] = extractSalesRank(item);
+    } catch (err) {
+      if (err.response?.status === 401) {
+        console.warn(`[SP-API] Catalog Items auth failed (401) — aborting BSR refresh for the remaining ${asins.length - i} ASINs this scan`);
+        for (let j = i; j < asins.length; j++) results[asins[j]] = null;
+        return results;
+      }
+      console.warn(`[SP-API] Catalog Items lookup failed for ${asin}: ${err.message}`);
+      results[asin] = null;
+    }
+    if (i < asins.length - 1) await sleep(CATALOG_RATE_LIMIT_DELAY_MS);
+  }
+
+  return results;
 }
 
 function checkByCategory(category) {
@@ -140,4 +266,11 @@ async function batchCheckUngating(products) {
   }));
 }
 
-module.exports = { checkUngating, batchCheckUngating, hasCredentials };
+module.exports = {
+  checkUngating,
+  batchCheckUngating,
+  hasCredentials,
+  getCatalogItem,
+  getSalesRank,
+  batchGetSalesRanks,
+};
