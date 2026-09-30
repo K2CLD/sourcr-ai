@@ -1,6 +1,6 @@
 {
   "name": "sourcr-ai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Amazon FBA sourcing tool",
   "main": "electron/main.js",
   "scripts": {
@@ -65,7 +65,7 @@
         "provider": "github",
         "owner": "K2CLD",
         "repo": "sourcr-ai",
-        "draft": false
+        "releaseType": "release"
       }
     ],
     "win": {
