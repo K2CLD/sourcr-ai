@@ -1,6 +1,7 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, dialog } = require("electron");
 const path = require("path");
 const { fork } = require("child_process");
+const { autoUpdater } = require("electron-updater");
 
 const PORT = 3001;
 const SERVER_URL = `http://localhost:${PORT}`;
@@ -80,6 +81,35 @@ async function createWindow() {
   });
 }
 
+function setupAutoUpdater() {
+  // electron-updater errors out immediately when running unpacked (dev) —
+  // there's no packaged app.asar/app-update.yml for it to compare against.
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = true;
+
+  autoUpdater.on("error", (err) => {
+    console.error("[updater] error:", err.message);
+  });
+
+  autoUpdater.on("update-downloaded", async (info) => {
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Update ready",
+      message: `Sourcr AI ${info.version} has been downloaded.`,
+      detail: "Restart now to install it, or install it the next time you quit.",
+      buttons: ["Restart now", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+
+  autoUpdater.checkForUpdates().catch((err) => {
+    console.error("[updater] checkForUpdates failed:", err.message);
+  });
+}
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -91,7 +121,10 @@ if (!gotLock) {
     }
   });
 
-  app.whenReady().then(createWindow);
+  app.whenReady().then(async () => {
+    await createWindow();
+    setupAutoUpdater();
+  });
 
   app.on("window-all-closed", () => {
     stopServer();
