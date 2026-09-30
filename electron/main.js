@@ -2,6 +2,15 @@ const { app, BrowserWindow, dialog } = require("electron");
 const path = require("path");
 const { fork } = require("child_process");
 const { autoUpdater } = require("electron-updater");
+const log = require("electron-log");
+
+// electron-updater writes its own detailed internal trace here when set as its logger
+// (checking-for-update, found/not-found, download progress, errors — everything). File
+// lives at %APPDATA%\Sourcr AI\logs\main.log on Windows; log.transports.file.getFile()
+// prints the exact resolved path below on every launch.
+log.transports.file.level = "info";
+log.transports.console.level = "info";
+autoUpdater.logger = log;
 
 const PORT = 3001;
 const SERVER_URL = `http://localhost:${PORT}`;
@@ -82,17 +91,40 @@ async function createWindow() {
 }
 
 function setupAutoUpdater() {
+  log.info(`[updater] log file: ${log.transports.file.getFile().path}`);
+  log.info(`[updater] app version: ${app.getVersion()}, isPackaged: ${app.isPackaged}`);
+
   // electron-updater errors out immediately when running unpacked (dev) —
   // there's no packaged app.asar/app-update.yml for it to compare against.
-  if (!app.isPackaged) return;
+  if (!app.isPackaged) {
+    log.info("[updater] skipping — not a packaged build");
+    return;
+  }
 
   autoUpdater.autoDownload = true;
 
+  autoUpdater.on("checking-for-update", () => {
+    log.info("[updater] checking for update...");
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    log.info(`[updater] update available: ${info.version} (current: ${app.getVersion()})`);
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    log.info(`[updater] no update available — latest is ${info.version}, already up to date`);
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    log.info(`[updater] downloading: ${progress.percent.toFixed(1)}%`);
+  });
+
   autoUpdater.on("error", (err) => {
-    console.error("[updater] error:", err.message);
+    log.error("[updater] error:", err.stack || err.message);
   });
 
   autoUpdater.on("update-downloaded", async (info) => {
+    log.info(`[updater] download complete: ${info.version}`);
     const { response } = await dialog.showMessageBox(mainWindow, {
       type: "info",
       title: "Update ready",
@@ -105,8 +137,9 @@ function setupAutoUpdater() {
     if (response === 0) autoUpdater.quitAndInstall();
   });
 
+  log.info("[updater] calling checkForUpdates()");
   autoUpdater.checkForUpdates().catch((err) => {
-    console.error("[updater] checkForUpdates failed:", err.message);
+    log.error("[updater] checkForUpdates() rejected:", err.stack || err.message);
   });
 }
 
