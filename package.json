@@ -1,10 +1,15 @@
 {
   "name": "sourcr-ai",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Amazon FBA sourcing tool",
+  "main": "electron/main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "server": "node server.js",
+    "electron": "electron .",
+    "build:frontend": "cd frontend && npm run build",
+    "dist": "npm run build:frontend && electron-builder",
+    "dist:dir": "npm run build:frontend && electron-builder --dir"
   },
   "keywords": [],
   "author": "",
@@ -18,5 +23,56 @@
     "express": "^5.2.1",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.7"
+  },
+  "devDependencies": {
+    "electron": "^38.8.6",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.sourcrai.desktop",
+    "productName": "Sourcr AI",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "server.js",
+      "backend/**/*",
+      "database/**/*",
+      "frontend/dist/**/*",
+      "node_modules/**/*",
+      "package.json",
+      "!frontend/node_modules",
+      "!frontend/src",
+      "!frontend/public",
+      "!frontend/*.config.js",
+      "!frontend/README.md",
+      "!**/*.log",
+      "!.git",
+      "!.claude"
+    ],
+    "extraResources": [
+      {
+        "from": ".env",
+        "to": ".env"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Sourcr AI"
+    }
   }
 }
