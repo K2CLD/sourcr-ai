@@ -1,6 +1,42 @@
 const Anthropic = require("@anthropic-ai/sdk");
+const { CATEGORY_IDS } = require("./keepa");
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_KEY });
+
+// Pick which categories are worth scanning today, using Claude's general market/seasonality
+// knowledge only — zero Keepa calls. Deliberately does NOT pull live Keepa bestseller/trend
+// data per category: at only 10 fixed categories, checking each would cost ~11 tokens/category
+// (110 tokens total) just for a discovery step before the real scan even starts, and general
+// seasonal reasoning (holidays, back-to-school, weather) is a reasonable zero-cost proxy for
+// which categories are worth prioritizing. If picks turn out too generic, the next step would
+// be wiring in a cheap per-category signal (e.g. a single Product Finder search page sorted by
+// sales rank, no /product detail calls) — not built here since it wasn't needed yet.
+async function pickTrendingCategories({ count = 4 } = {}) {
+  const categories = Object.keys(CATEGORY_IDS);
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+  const message = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 600,
+    system: "You are an expert Amazon FBA sourcing strategist choosing which product categories to scan today, using seasonality and general market knowledge — no live sales data is available. Be specific and concrete about WHY a category is timely right now; avoid generic filler reasoning.",
+    messages: [
+      {
+        role: "user",
+        content: `Today's date: ${today}.
+
+Categories available to scan (pick only from this exact list): ${categories.join(", ")}
+
+Pick the ${count} categories most worth sourcing from today for Amazon FBA resale, considering seasonality, upcoming holidays/events, and typical demand patterns at this time of year. Respond in this exact JSON format, nothing else:
+{"picks":[{"category":"one of the exact category names above","reason":"one specific sentence — cite the actual seasonal/market driver, not a generic statement"}]}`,
+      },
+    ],
+  });
+
+  const raw = message.content[0].text.trim().replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)[0]);
+
+  return (parsed.picks || []).filter((p) => categories.includes(p.category));
+}
 
 function buildLeadContext(lead) {
   const pd = lead.profitData || {};
@@ -61,6 +97,7 @@ async function analyzeLead(lead) {
 {
   "verdict": "Strong Buy | Buy | Hold | Pass",
   "confidence": "High | Medium | Low",
+  "confidenceScore": 0-100 (a number — your overall conviction in this lead as a buy, combining profitability, demand, and risk into one score; used to rank leads against each other, so use the full range rather than clustering everything near 50),
   "summary": "2-sentence plain-English verdict",
   "strengths": ["specific strength 1", "specific strength 2"],
   "risks": ["specific risk 1", "specific risk 2"],
@@ -204,4 +241,4 @@ Return ONLY valid JSON, no markdown, no explanation:
     });
 }
 
-module.exports = { analyzeLead, analyzeLeads, quickTake, findSupplierSources };
+module.exports = { analyzeLead, analyzeLeads, quickTake, findSupplierSources, pickTrendingCategories };

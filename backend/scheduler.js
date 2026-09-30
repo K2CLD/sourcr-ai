@@ -1,7 +1,7 @@
 require("dotenv").config();
 const cron = require("node-cron");
 const nodemailer = require("nodemailer");
-const { scanMultipleCategories } = require("./scanner");
+const { scanMultipleCategories, rankByConfidence } = require("./scanner");
 const { summarize } = require("./scorer");
 const { saveScan } = require("./supabase");
 
@@ -111,11 +111,12 @@ async function runScan(categories = DEFAULT_CATEGORIES, options = DEFAULT_SCAN_O
 
   try {
     const results = await scanMultipleCategories(categories, options);
-    lastResults = results;
+    const top = rankByConfidence(results); // full `results` still saved below — this is display/alert-only
+    lastResults = top;
     lastRunAt = new Date().toISOString();
 
     console.log(`[Scheduler] Scan complete — ${results.length} leads found`);
-    results.slice(0, 5).forEach((p) => console.log(summarize(p)));
+    top.slice(0, 5).forEach((p) => console.log(summarize(p)));
 
     const warning = results.partialErrors
       ? `Some categories failed and were skipped: ${results.partialErrors.map((e) => `${e.category} (${e.message})`).join("; ")}`
@@ -124,11 +125,11 @@ async function runScan(categories = DEFAULT_CATEGORIES, options = DEFAULT_SCAN_O
       console.warn(`[Supabase] Failed to auto-save scheduled scan: ${err.message}`);
     });
 
-    if (results.length > 0) {
-      await sendAlert(results);
+    if (top.length > 0) {
+      await sendAlert(top);
     }
 
-    return results;
+    return top;
   } catch (err) {
     console.error("[Scheduler] Scan failed:", err.message);
     throw err;

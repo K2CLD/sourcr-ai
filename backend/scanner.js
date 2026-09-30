@@ -3,7 +3,7 @@ const { batchCalculate } = require("./selleramp");
 const { scoreProducts, filterByGrade } = require("./scorer");
 const { getMatched } = require("./supplier");
 const { batchCheckUngating, batchGetSalesRanks, hasCredentials } = require("./spapi");
-const { analyzeLeads } = require("./ai");
+const { analyzeLeads, pickTrendingCategories } = require("./ai");
 const keepaCache = require("./keepaCache");
 
 const KEEPA_BATCH_SIZE = 100; // Keepa's actual /product limit (was wrongly set to 20 — 5x more requests than needed)
@@ -124,6 +124,15 @@ function postFilter(products, opts) {
   });
 }
 
+// Runs after batchCheckUngating — drops leads that are gated with no auto-ungate path,
+// i.e. not actually sellable today without a manual Seller Central approval process.
+// Leads where ungating status is unknown/heuristic-null are kept (not penalized for
+// missing data, consistent with preFilter's treatment of missing rating/reviews/etc).
+// This is a hard, unconditional gate — there is no options flag to disable it.
+function filterByUngating(products) {
+  return products.filter((p) => !(p.ungating?.gated === true && p.ungating?.autoUngatable === false));
+}
+
 // Scan a single Amazon category for profitable sourcing leads.
 async function scanCategory(categoryName, options = {}) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -167,8 +176,13 @@ async function scanCategory(categoryName, options = {}) {
   console.log(`[Scanner] ${leads.length} leads found in ${categoryName} — checking ungating...`);
   const withUngating = await batchCheckUngating(tagged);
 
-  console.log(`[Scanner] Running AI evaluation on ${withUngating.length} surviving leads in ${categoryName}...`);
-  const withAiAnalysis = await analyzeLeads(withUngating);
+  const sellableToday = filterByUngating(withUngating);
+  if (sellableToday.length < withUngating.length) {
+    console.log(`[Scanner] ${withUngating.length - sellableToday.length} lead(s) dropped in ${categoryName} — gated with no auto-ungate path`);
+  }
+
+  console.log(`[Scanner] Running AI evaluation on ${sellableToday.length} surviving leads in ${categoryName}...`);
+  const withAiAnalysis = await analyzeLeads(sellableToday);
 
   console.log(`[Scanner] Scan complete for ${categoryName}`);
   return withAiAnalysis;
@@ -208,6 +222,20 @@ async function scanMultipleCategories(categories = Object.keys(CATEGORY_IDS), op
     result.partialErrors = errors;
   }
   return result;
+}
+
+// Asks Claude which categories are worth scanning today (zero Keepa cost — see
+// pickTrendingCategories in ai.js), then runs the normal multi-category scan against
+// exactly those picks. Returns the picks (with reasoning) alongside the scan result so
+// the caller can show the user *why* these categories were chosen.
+async function scanTrendingCategories(options = {}, { count = 4 } = {}) {
+  const picks = await pickTrendingCategories({ count });
+  if (!picks.length) throw new Error("AI category picker returned no valid picks");
+
+  const categories = picks.map((p) => p.category);
+  const leads = await scanMultipleCategories(categories, options);
+
+  return { picks, categories, leads };
 }
 
 // Scan a pre-loaded supplier product list (output of supplier.matchSupplierToAmazon)
@@ -251,7 +279,8 @@ async function scanSupplierProducts(supplierProducts, options = {}) {
   }));
 
   const withUngating = await batchCheckUngating(leads);
-  return analyzeLeads(withUngating);
+  const sellableToday = filterByUngating(withUngating);
+  return analyzeLeads(sellableToday);
 }
 
 // Quick single-ASIN analysis. `options`, when passed (e.g. the frontend's active scan
@@ -272,18 +301,40 @@ async function scanAsin(asin, buyPrice = null, options = {}) {
 
   const [scored] = scoreProducts([enriched]);
   const [withUngating] = await batchCheckUngating([scored]);
+  const passesUngating = filterByUngating([withUngating]).length > 0;
 
-  if (passesPreFilter && passesPostFilter) return withUngating;
-  return {
-    ...withUngating,
-    flags: [...(withUngating.flags || []), "Outside your active scan filters (price/ROI/BSR/etc.)"],
-  };
+  if (passesPreFilter && passesPostFilter && passesUngating) return withUngating;
+
+  const filterFlags = [];
+  if (!passesPreFilter || !passesPostFilter) filterFlags.push("Outside your active scan filters (price/ROI/BSR/etc.)");
+  if (!passesUngating) filterFlags.push("Gated with no auto-ungate path — not sellable today");
+
+  return { ...withUngating, flags: [...(withUngating.flags || []), ...filterFlags] };
+}
+
+// Ranks leads by Claude's confidenceScore (highest first) and returns the top `limit`.
+// Leads whose AI pass errored (aiAnalysis.error set, no score) sort to the bottom rather
+// than being dropped — a transient Claude API failure on one lead shouldn't shrink the
+// shortlist. Callers wanting the full set for persistence (e.g. Supabase) should keep a
+// reference to the pre-rank array; this only slices for display/API-response purposes.
+function rankByConfidence(leads, limit = 20) {
+  const ranked = [...leads].sort((a, b) => {
+    const scoreA = a.aiAnalysis?.confidenceScore;
+    const scoreB = b.aiAnalysis?.confidenceScore;
+    if (scoreA == null && scoreB == null) return 0;
+    if (scoreA == null) return 1;
+    if (scoreB == null) return -1;
+    return scoreB - scoreA;
+  });
+  return ranked.slice(0, limit);
 }
 
 module.exports = {
   scanCategory,
   scanMultipleCategories,
+  scanTrendingCategories,
   scanSupplierProducts,
   scanAsin,
+  rankByConfidence,
   DEFAULT_OPTIONS,
 };

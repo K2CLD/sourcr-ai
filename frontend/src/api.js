@@ -8,6 +8,7 @@ export const getCategoryTree = ()            => api.get('/categories/tree')
 
 export const scanCategory   = (category, options)   => api.post('/scan/category', { category, options })
 export const scanCategories = (categories, options) => api.post('/scan/categories', { categories, options })
+export const scanTrending   = (options, count)      => api.post('/scan/trending', { options, count })
 export const scanAsin       = (asin, buyPrice, options) => api.post('/scan/asin', { asin, buyPrice, options })
 
 export const calcProfit    = (asin, buyPrice)  => api.post('/profit', { asin, buyPrice })

@@ -464,14 +464,13 @@ function getVal(obj, path) {
   return path ? path.split('.').reduce((o, k) => o?.[k], obj) : null
 }
 
-export default function LeadTable({ leads, loading, error, warning, scanOptions }) {
+export default function LeadTable({ leads, loading, error, warning, picks, totalMatched, scanOptions }) {
   const [expanded, setExpanded]     = useState(null)
   const [sortKey, setSortKey]       = useState('score')
   const [sortDir, setSortDir]       = useState(-1)
   const [search, setSearch]         = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [gradeFilter, setGrade]     = useState('All')
-  const [ungateOnly, setUngateOnly] = useState(false)
   const [asinLookup, setAsinLookup] = useState(null) // { asin, status: 'loading'|'done'|'error', lead, error }
 
   // Debounce what actually drives filtering/lookup — the input itself stays instant
@@ -510,7 +509,6 @@ export default function LeadTable({ leads, loading, error, warning, scanOptions 
 
   const filtered = searchedLeads
     .filter(l => gradeFilter === 'All' || l.grade === gradeFilter)
-    .filter(l => !ungateOnly || l.ungating?.gated === false || l.ungating?.autoUngatable)
     .filter(l => {
       if (!debouncedSearch) return true
       const q = debouncedSearch.toLowerCase()
@@ -618,27 +616,47 @@ export default function LeadTable({ leads, loading, error, warning, scanOptions 
           })}
         </div>
 
-        <button onClick={() => setUngateOnly(v => !v)} style={{
-          padding: '6px 12px',
-          background: ungateOnly ? 'rgba(0,230,118,0.08)' : 'transparent',
-          border: ungateOnly ? '1px solid rgba(0,230,118,0.3)' : '1px solid #1a1a1a',
-          borderRadius: 4, color: ungateOnly ? '#00e676' : '#383838',
-          fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
-          cursor: 'pointer', fontFamily: 'inherit', transition: 'all .12s',
-        }}
-        onMouseEnter={e => { if (!ungateOnly) e.currentTarget.style.borderColor = '#333' }}
-        onMouseLeave={e => { if (!ungateOnly) e.currentTarget.style.borderColor = '#1a1a1a' }}
+        {/* Always on — hard-gated server-side, not a toggle (see filterByUngating in scanner.js) */}
+        <span
+          title="Every scan drops leads that are gated with no auto-ungate path — this is always enforced, not optional"
+          style={{
+            padding: '6px 12px',
+            background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.3)',
+            borderRadius: 4, color: '#00e676',
+            fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
+          }}
         >
-          Auto-ungate
-        </button>
+          ✓ Auto-ungate
+        </span>
 
         <span style={{ fontSize: 11, color: '#2a2a2a', marginLeft: 'auto', letterSpacing: '0.04em' }}>
-          {filtered.length} {filtered.length === 1 ? 'lead' : 'leads'}
+          {totalMatched != null && totalMatched > filtered.length
+            ? `Top ${filtered.length} of ${totalMatched}`
+            : `${filtered.length} ${filtered.length === 1 ? 'opportunity' : 'opportunities'}`}
         </span>
       </div>
 
       {/* Table area */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
+        {!error && picks?.length > 0 && (
+          <div style={{
+            margin: '16px 24px 0', padding: '14px 16px',
+            background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.2)', borderRadius: 4,
+          }}>
+            <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#00e676', marginBottom: 8 }}>
+              AI picked today's categories
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {picks.map((p) => (
+                <p key={p.category} style={{ fontSize: 12, color: '#aaa', lineHeight: 1.5 }}>
+                  <span style={{ color: '#fff', fontWeight: 600 }}>{p.category}</span>
+                  {' — '}{p.reason}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
         {!error && warning && (
           <div style={{
             margin: '16px 24px 0', padding: '12px 16px',
