@@ -95,6 +95,9 @@ router.post("/scan/category", async (req, res) => {
   try {
     const leads = await scanCategory(category, options);
     const deduped = dedupeVariants(leads);
+    if (deduped.length < leads.length) {
+      console.log(`[Scanner] ${leads.length - deduped.length} lead(s) collapsed as duplicate variants (${leads.length} -> ${deduped.length})`);
+    }
     const top = rankByConfidence(deduped);
     res.json({ category, count: top.length, totalMatched: deduped.length, leads: top });
   } catch (err) {
@@ -122,6 +125,9 @@ router.post("/scan/categories", async (req, res) => {
     // what gets persisted — only the API response/UI display is curated down to the top 20.
     autoSaveScan({ categories, options, leads, warning });
     const deduped = dedupeVariants(leads);
+    if (deduped.length < leads.length) {
+      console.log(`[Scanner] ${leads.length - deduped.length} lead(s) collapsed as duplicate variants (${leads.length} -> ${deduped.length})`);
+    }
     const top = rankByConfidence(deduped);
     res.json({ categories, count: top.length, totalMatched: deduped.length, leads: top, ...(warning ? { warning } : {}) });
   } catch (err) {
@@ -145,6 +151,9 @@ router.post("/scan/trending", async (req, res) => {
     // top 20 returned — same split as /scan/categories.
     autoSaveScan({ categories, options: { ...options, aiPicks: picks }, leads, warning });
     const deduped = dedupeVariants(leads);
+    if (deduped.length < leads.length) {
+      console.log(`[Scanner] ${leads.length - deduped.length} lead(s) collapsed as duplicate variants (${leads.length} -> ${deduped.length})`);
+    }
     const top = rankByConfidence(deduped);
     res.json({ picks, categories, count: top.length, totalMatched: deduped.length, leads: top, ...(warning ? { warning } : {}) });
   } catch (err) {
@@ -192,6 +201,9 @@ router.post("/scan/supplier", async (req, res) => {
     const leads = await scanSupplierProducts(supplierProducts, options);
     autoSaveScan({ categories: ["supplier"], options, leads });
     const deduped = dedupeVariants(leads);
+    if (deduped.length < leads.length) {
+      console.log(`[Scanner] ${leads.length - deduped.length} lead(s) collapsed as duplicate variants (${leads.length} -> ${deduped.length})`);
+    }
     const top = rankByConfidence(deduped);
     res.json({ count: top.length, totalMatched: deduped.length, leads: top });
   } catch (err) {

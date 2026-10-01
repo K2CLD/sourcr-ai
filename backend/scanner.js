@@ -168,14 +168,24 @@ async function scanCategory(categoryName, options = {}) {
   const withBsr = await enrichBsr(preFiltered);
   const enriched = await batchCalculate(withBsr);
   const profitable = postFilter(enriched, opts);
+  console.log(`[Scanner] ${profitable.length}/${preFiltered.length} pass post-filter (ROI >= ${opts.minROI}%, profit >= $${opts.minProfit}) in ${categoryName}`);
 
   const scored = scoreProducts(profitable);
   const leads = filterByGrade(scored, opts.minGrade);
+  if (leads.length < scored.length) {
+    console.log(`[Scanner] ${scored.length - leads.length} dropped by grade filter (min ${opts.minGrade}) in ${categoryName}`);
+  }
 
   const tagged = leads.map((p) => ({ ...p, category: categoryName, scannedAt: new Date().toISOString() }));
 
   console.log(`[Scanner] ${leads.length} leads found in ${categoryName} — checking ungating...`);
   const withUngating = await batchCheckUngating(tagged);
+  const methodCounts = withUngating.reduce((acc, p) => {
+    const m = p.ungating?.method || 'error';
+    acc[m] = (acc[m] || 0) + 1;
+    return acc;
+  }, {});
+  console.log(`[Scanner] Ungating method breakdown in ${categoryName}:`, methodCounts);
 
   const sellableToday = filterByUngating(withUngating);
   if (sellableToday.length < withUngating.length) {
