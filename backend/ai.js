@@ -188,6 +188,28 @@ function tierFor(domain) {
   return "unverified";
 }
 
+// Claude is asked to produce a searchUrl per source, but it's generating that URL from
+// memory/pattern-matching — not a verified fact — and it gets it wrong often enough to
+// matter (confirmed live: it produced a 404 Alibaba URL and a wrong Costco path). For the
+// domains below, the URL is built from a known-correct template instead of trusting
+// Claude's guess; each pattern here was hit with a real request and confirmed to return
+// 200. Domains not listed here still use whatever Claude produced — unverified, same as
+// before — rather than us guessing a pattern we haven't actually tested either.
+const SEARCH_URL_TEMPLATES = {
+  "walmart.com":  (q) => `https://www.walmart.com/search?q=${q}`,
+  "target.com":   (q) => `https://www.target.com/s?searchTerm=${q}`,
+  "costco.com":   (q) => `https://www.costco.com/CatalogSearch?dept=All&keyword=${q}`,
+  "samsclub.com": (q) => `https://www.samsclub.com/s/${q}`,
+  "faire.com":    (q) => `https://www.faire.com/search?q=${q}`,
+  "alibaba.com":  (q) => `https://www.alibaba.com/trade/search?SearchText=${q}`,
+};
+
+function buildVerifiedSearchUrl(domain, query) {
+  const d = (domain || "").toLowerCase().replace(/^www\./, "");
+  const template = SEARCH_URL_TEMPLATES[d];
+  return template ? template(encodeURIComponent(query)) : null;
+}
+
 // Find legitimate off-Amazon sourcing options for a product
 async function findSupplierSources(lead) {
   const title  = lead.title  || lead.asin;
@@ -231,7 +253,11 @@ Return ONLY valid JSON, no markdown, no explanation:
 
   return (parsed.sources || [])
     .filter(s => !isAmazonSource(s))
-    .map(s => ({ ...s, tier: tierFor(s.domain) }))
+    .map(s => ({
+      ...s,
+      tier: tierFor(s.domain),
+      searchUrl: buildVerifiedSearchUrl(s.domain, title) || s.searchUrl,
+    }))
     .sort((a, b) => {
       // Sort: verified first within price rank; unverified last
       if (a.estimatedPrice && b.estimatedPrice) return a.estimatedPrice - b.estimatedPrice;
