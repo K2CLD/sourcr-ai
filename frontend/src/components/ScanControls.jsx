@@ -20,22 +20,38 @@ const s = {
   },
   input: {
     width: '100%',
-    background: 'var(--surface-1)',
-    border: '1px solid var(--border-emphasis)',
+    background: 'var(--surface-0)',
+    border: '1px solid var(--border)',
     borderRadius: 'var(--radius-md)',
     color: '#fff',
     fontSize: 14,
     fontWeight: 400,
-    padding: '12px 14px',
+    padding: '11px 14px',
     outline: 'none',
-    transition: 'border-color .15s, background .15s',
+    transition: 'border-color .15s, background .15s, box-shadow .15s',
     fontFamily: 'var(--font-mono)',
     fontVariantNumeric: 'tabular-nums',
+    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)',
+  },
+  // A visually distinct card grouping related fields — gives the sidebar real
+  // hierarchy instead of one flat scroll of identical label+box rows.
+  card: {
+    background: 'var(--surface-2)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius-lg)',
+    padding: 'var(--space-5)',
+    marginBottom: 'var(--space-4)',
+  },
+  cardTitle: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    color: 'var(--text-faint)',
+    marginBottom: 'var(--space-4)',
   },
   section: {
-    borderBottom: '1px solid var(--surface-4)',
-    paddingBottom: 'var(--space-6)',
-    marginBottom: 'var(--space-6)',
+    marginBottom: 'var(--space-5)',
   },
 }
 
@@ -428,15 +444,15 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
-      background: 'var(--surface-0)',
+      background: 'var(--surface-1)',
     }}>
       <div style={{ flex: 1, overflowY: 'auto', padding: '28px 26px 0' }}>
 
         <div style={{
-          ...s.section, padding: 14, margin: '0 0 var(--space-6)', borderBottom: 'none',
-          background: aiMode ? 'rgba(144,133,233,0.06)' : 'transparent',
-          border: `1px solid ${aiMode ? 'rgba(144,133,233,0.22)' : 'var(--surface-4)'}`,
-          borderRadius: 'var(--radius-md)', transition: 'background .15s, border-color .15s',
+          ...s.card, marginBottom: 'var(--space-4)',
+          background: aiMode ? 'rgba(144,133,233,0.08)' : 'var(--surface-2)',
+          border: `1px solid ${aiMode ? 'rgba(144,133,233,0.25)' : 'var(--border-subtle)'}`,
+          transition: 'background .15s, border-color .15s',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: aiMode ? 10 : 0 }}>
             <Sparkles size={13} style={{ color: aiMode ? 'var(--ai)' : 'var(--text-faint)', flexShrink: 0, transition: 'color .15s' }} />
@@ -457,94 +473,64 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
           </div>
         )}
 
-        <div style={s.section}>
-          <NumInput
-            label="Min ROI"
-            value={minROI}
-            onChange={setMinROI}
-            unit="%" min={0} max={999}
-          />
-        </div>
-
-        <div style={s.section}>
-          <span style={s.label}>Price Range</span>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 8, alignItems: 'center' }}>
+        <div style={s.card}>
+          <p style={s.cardTitle}>Profitability</p>
+          <div style={{ ...s.section, marginBottom: 'var(--space-4)' }}>
             <NumInput
-              label=""
-              value={minPrice}
-              onChange={setMinPrice}
-              unit="$" min={0}
+              label="Min ROI"
+              value={minROI}
+              onChange={setMinROI}
+              unit="%" min={0} max={999}
             />
-            <span style={{ color: 'var(--text-faint)', fontSize: 16, marginTop: -2 }}>–</span>
-            <NumInput
-              label=""
-              value={maxPrice}
-              onChange={setMaxPrice}
-              unit="$" min={0}
-            />
+          </div>
+          <div style={{ ...s.section, marginBottom: 'var(--space-4)' }}>
+            <span style={s.label}>Price Range</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 8, alignItems: 'center' }}>
+              <NumInput label="" value={minPrice} onChange={setMinPrice} unit="$" min={0} />
+              <span style={{ color: 'var(--text-faint)', fontSize: 16, marginTop: -2 }}>–</span>
+              <NumInput label="" value={maxPrice} onChange={setMaxPrice} unit="$" min={0} />
+            </div>
+          </div>
+          <div style={{ ...s.section, marginBottom: 0 }}>
+            <NumInput label="Max BSR" value={maxBSR} onChange={setMaxBSR} min={100} step={1000} />
           </div>
         </div>
 
-        <div style={s.section}>
-          <NumInput
-            label="Max BSR"
-            value={maxBSR}
-            onChange={setMaxBSR}
-            min={100} step={1000}
-          />
-        </div>
-
-        <div style={s.section}>
-          <NumInput
-            label="Max Sellers"
-            value={maxSellers}
-            onChange={setMaxSellers}
-            min={1}
-          />
-        </div>
-
-        <div style={s.section}>
-          <NumInput
-            label="Min Monthly Units"
-            value={minMonthlyUnits}
-            onChange={setMinMonthlyUnits}
-            min={0} step={10}
-          />
-        </div>
-
-        <div style={s.section}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <NumInput
-              label="Min Reviews"
-              value={minReviews}
-              onChange={setMinReviews}
-              min={0}
-            />
-            <NumInput
-              label="Min Rating"
-              value={minRating}
-              onChange={setMinRating}
-              min={0} max={5} step={0.1}
-            />
+        <div style={s.card}>
+          <p style={s.cardTitle}>Competition &amp; Demand</p>
+          <div style={{ ...s.section, marginBottom: 'var(--space-4)' }}>
+            <NumInput label="Max Sellers" value={maxSellers} onChange={setMaxSellers} min={1} />
+          </div>
+          <div style={{ ...s.section, marginBottom: 'var(--space-4)' }}>
+            <NumInput label="Min Monthly Units" value={minMonthlyUnits} onChange={setMinMonthlyUnits} min={0} step={10} />
+          </div>
+          <div style={{ ...s.section, marginBottom: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <NumInput label="Min Reviews" value={minReviews} onChange={setMinReviews} min={0} />
+              <NumInput label="Min Rating" value={minRating} onChange={setMinRating} min={0} max={5} step={0.1} />
+            </div>
           </div>
         </div>
 
-        <div style={{ ...s.section, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Toggle
-            label="Exclude if Amazon sells it"
-            checked={excludeAmazonSeller}
-            onChange={setExcludeAmazonSeller}
-          />
-          <Toggle
-            label="Exclude Hazmat/Battery"
-            checked={excludeHazmat}
-            onChange={setExcludeHazmat}
-          />
-          <Toggle
-            label="Exclude Private Label"
-            checked={excludePrivateLabel}
-            onChange={setExcludePrivateLabel}
-          />
+        <div style={{ ...s.card, marginBottom: 'var(--space-6)' }}>
+          <p style={s.cardTitle}>Exclusions</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Toggle
+              label="Exclude if Amazon sells it"
+              checked={excludeAmazonSeller}
+              onChange={setExcludeAmazonSeller}
+            />
+            <Toggle
+              label="Exclude Hazmat/Battery"
+              checked={excludeHazmat}
+              onChange={setExcludeHazmat}
+            />
+            <Toggle
+              label="Exclude Private Label"
+              checked={excludePrivateLabel}
+              onChange={setExcludePrivateLabel}
+            />
+          </div>
         </div>
       </div>
 

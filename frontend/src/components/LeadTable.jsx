@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Search, AlertTriangle, CheckCircle2, Lock, ExternalLink, Sparkles,
-  ChevronDown, ChevronUp, PackageSearch, Loader2,
+  ChevronDown, ChevronUp, Loader2,
 } from 'lucide-react'
 import { analyzeLead, getSupplierSources, scanAsin } from '../api'
 import Sparkline from './Sparkline'
@@ -604,8 +604,8 @@ export default function LeadTable({ leads, loading, error, warning, picks, total
       {/* Toolbar */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 14,
-        padding: '12px 24px', borderBottom: '1px solid var(--border-subtle)',
-        flexShrink: 0, background: 'var(--surface-0)',
+        padding: '14px 24px', borderBottom: '1px solid var(--border-subtle)',
+        flexShrink: 0, background: 'var(--surface-1)',
       }}>
         <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
           <Search size={14} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none' }} />
@@ -615,9 +615,10 @@ export default function LeadTable({ leads, loading, error, warning, picks, total
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{
-              width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-md)', color: '#fff', fontSize: 13, padding: '10px 40px 10px 36px',
+              width: '100%', background: 'var(--surface-0)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-md)', color: '#fff', fontSize: 13, padding: '11px 40px 11px 36px',
               outline: 'none', fontFamily: 'inherit', transition: 'border-color .15s',
+              boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)',
             }}
             onFocus={e => { e.target.style.borderColor = 'var(--brand)' }}
             onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
@@ -645,17 +646,17 @@ export default function LeadTable({ leads, loading, error, warning, picks, total
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: 3 }}>
+        <div style={{ display: 'flex', gap: 3, background: 'var(--surface-0)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 3, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)' }}>
           {['All','A','B','C','D'].map(g => {
             const active = gradeFilter === g
             const color  = GRADE_COLOR[g]
             return (
               <button key={g} onClick={() => setGrade(g)} className="press-feedback" style={{
-                padding: '5px 12px',
+                padding: '7px 14px',
                 background: active ? (g === 'All' ? 'var(--surface-5)' : `color-mix(in srgb, ${color} 16%, transparent)`) : 'transparent',
                 border: active ? (g === 'All' ? '1px solid var(--border-emphasis)' : `1px solid color-mix(in srgb, ${color} 40%, transparent)`) : '1px solid transparent',
                 borderRadius: 'var(--radius-sm)', color: active ? (g === 'All' ? '#ddd' : color) : 'var(--text-disabled)',
-                fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                 letterSpacing: '0.04em',
               }}
               onMouseEnter={e => { if (!active) e.currentTarget.style.color = 'var(--text-muted)' }}
@@ -733,27 +734,45 @@ export default function LeadTable({ leads, loading, error, warning, picks, total
         {!error && !loading && filtered.length === 0 && leads.length === 0 && !debouncedSearch && (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
-            flex: 1, minHeight: 320, paddingTop: '8%', paddingBottom: '8%', overflow: 'hidden',
+            minHeight: 420, paddingTop: '7%',
           }}>
             <div style={{
-              width: 56, height: 56, borderRadius: 'var(--radius-xl)', background: 'var(--surface-3)',
-              border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              marginBottom: 20,
+              width: 64, height: 64, borderRadius: 'var(--radius-xl)',
+              background: 'radial-gradient(circle at 30% 30%, rgba(144,133,233,0.18), var(--surface-3))',
+              border: '1px solid rgba(144,133,233,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              marginBottom: 24, boxShadow: '0 0 32px rgba(144,133,233,0.1)',
             }}>
-              <PackageSearch size={24} style={{ color: 'var(--text-faint)' }} />
+              <Sparkles size={26} style={{ color: 'var(--ai)' }} />
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 500 }}>No opportunities yet</p>
-              <p style={{ fontSize: 12, color: 'var(--text-faint)' }}>Configure your filters and click Scan Now</p>
+            <p style={{ fontSize: 16, color: '#fff', marginBottom: 6, fontWeight: 600 }}>No opportunities yet</p>
+            <p style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 36 }}>Here's what happens when you click Scan Trending</p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: 360 }}>
+              {[
+                { n: '1', t: 'Claude picks today’s categories', d: 'Seasonality and market timing, zero Keepa cost' },
+                { n: '2', t: 'Every candidate is scanned & filtered', d: 'Price, ROI, BSR, ungating — gated-only items are dropped' },
+                { n: '3', t: 'Claude ranks the survivors', d: 'Top 20 by confidence, duplicate variants collapsed' },
+              ].map((step, i) => (
+                <div key={step.n} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 16px',
+                  background: 'var(--surface-2)', border: '1px solid var(--border-subtle)',
+                  borderRadius: i === 0 ? 'var(--radius-lg) var(--radius-lg) 0 0' : i === 2 ? '0 0 var(--radius-lg) var(--radius-lg)' : 0,
+                  borderTop: i > 0 ? 'none' : undefined,
+                }}>
+                  <span className="font-mono" style={{
+                    width: 22, height: 22, borderRadius: 'var(--radius-full)', background: 'var(--surface-4)',
+                    color: 'var(--text-secondary)', fontSize: 11, fontWeight: 700, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1,
+                  }}>
+                    {step.n}
+                  </span>
+                  <div>
+                    <p style={{ fontSize: 13, color: '#eee', fontWeight: 500, marginBottom: 2 }}>{step.t}</p>
+                    <p style={{ fontSize: 11.5, color: 'var(--text-faint)', lineHeight: 1.4 }}>{step.d}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-            <span style={{
-              marginTop: 'auto',
-              fontSize: 'clamp(80px, 10vw, 130px)', fontWeight: 700,
-              letterSpacing: '-0.04em', color: '#fff', opacity: 0.045,
-              userSelect: 'none', pointerEvents: 'none', whiteSpace: 'nowrap', lineHeight: 1,
-            }}>
-              SOURCR.AI
-            </span>
           </div>
         )}
 

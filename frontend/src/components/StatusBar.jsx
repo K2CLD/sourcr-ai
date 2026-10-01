@@ -24,7 +24,8 @@ export default function StatusBar({ onLoadScan }) {
       justifyContent: 'space-between',
       padding: '0 32px',
       flexShrink: 0,
-      background: 'var(--surface-0)',
+      background: 'var(--surface-1)',
+      boxShadow: '0 1px 0 rgba(255,255,255,0.03) inset, 0 4px 12px rgba(0,0,0,0.3)',
     }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={{
