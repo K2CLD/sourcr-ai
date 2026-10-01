@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { History, Trash2, AlertTriangle, Loader2 } from 'lucide-react'
 import { getScans, deleteScan as deleteScanApi } from '../api'
 
 function formatWhen(iso) {
@@ -43,30 +44,35 @@ export default function ScanHistory({ onLoad }) {
     <div ref={ref} style={{ position: 'relative' }}>
       <button
         onClick={() => setOpen((o) => { const next = !o; if (next) load(); return next })}
+        className="press-feedback"
         style={{
-          fontSize: 11, color: '#666', letterSpacing: '0.06em', textTransform: 'uppercase',
-          background: 'transparent', border: '1px solid #222', borderRadius: 4,
-          padding: '6px 12px', cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          fontSize: 11, color: open ? '#fff' : 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase',
+          background: open ? 'var(--surface-3)' : 'transparent', border: `1px solid ${open ? 'var(--border-emphasis)' : 'var(--border)'}`, borderRadius: 'var(--radius-md)',
+          padding: '6px 12px', cursor: 'pointer', fontFamily: 'inherit',
+          transition: 'color .15s, border-color .15s, background .15s',
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#333' }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = '#666'; e.currentTarget.style.borderColor = '#222' }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'var(--border-emphasis)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = open ? '#fff' : 'var(--text-muted)'; e.currentTarget.style.borderColor = open ? 'var(--border-emphasis)' : 'var(--border)' }}
       >
-        History
+        <History size={13} /> History
       </button>
 
       {open && (
-        <div style={{
+        <div className="anim-expand" style={{
           position: 'absolute', top: '100%', right: 0, marginTop: 8,
           width: 340, maxHeight: 400, overflowY: 'auto',
-          background: '#0a0a0a', border: '1px solid #222', borderRadius: 6,
-          boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 50,
+          background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+          boxShadow: 'var(--shadow-lg)', zIndex: 50,
         }}>
           {loading && (
-            <p style={{ padding: 16, fontSize: 12, color: '#444' }}>Loading...</p>
+            <p style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 16, fontSize: 12, color: 'var(--text-faint)' }}>
+              <Loader2 size={13} className="anim-spin" /> Loading...
+            </p>
           )}
 
           {!loading && scans.length === 0 && (
-            <p style={{ padding: 16, fontSize: 12, color: '#444' }}>No saved scans yet — run a scan and it'll show up here.</p>
+            <p style={{ padding: 16, fontSize: 12, color: 'var(--text-faint)' }}>No saved scans yet — run a scan and it'll show up here.</p>
           )}
 
           {!loading && scans.map((scan) => (
@@ -74,32 +80,34 @@ export default function ScanHistory({ onLoad }) {
               key={scan.id}
               onClick={() => { onLoad(scan.id); setOpen(false) }}
               style={{
-                padding: '12px 16px', borderBottom: '1px solid #161616',
+                padding: '12px 16px', borderBottom: '1px solid var(--surface-4)',
                 cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+                transition: 'background .12s',
               }}
-              onMouseEnter={(e) => e.currentTarget.style.background = '#111'}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-3)'}
               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
             >
               <div style={{ minWidth: 0 }}>
                 <p style={{ fontSize: 12, color: '#fff', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {(scan.categories || []).join(', ') || 'Scan'}
                 </p>
-                <p style={{ fontSize: 11, color: '#555' }}>
+                <p className="font-mono" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
                   {formatWhen(scan.created_at)} · {scan.lead_count} lead{scan.lead_count === 1 ? '' : 's'}
-                  {scan.warning ? ' · ⚠ partial' : ''}
+                  {scan.warning && <AlertTriangle size={10} style={{ color: 'var(--status-serious)' }} />}
                 </p>
               </div>
               <button
                 onClick={(e) => handleDelete(e, scan.id)}
                 title="Delete this saved scan"
+                className="press-feedback"
                 style={{
-                  fontSize: 14, color: '#444', background: 'none', border: 'none',
-                  cursor: 'pointer', flexShrink: 0, padding: 4,
+                  color: 'var(--text-faint)', background: 'none', border: 'none',
+                  cursor: 'pointer', flexShrink: 0, padding: 4, display: 'flex',
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#444'}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--status-critical)'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-faint)'}
               >
-                ×
+                <Trash2 size={13} />
               </button>
             </div>
           ))}

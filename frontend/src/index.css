@@ -1,5 +1,74 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Brand accent — unchanged, the existing CTA/primary color */
+  --brand: #00e676;
+  --brand-bright: #4dffa6;
+  --brand-dim: #00b35c;
+
+  /* AI accent — distinct hue so AI-generated content (verdicts, category
+     picks) visually reads as its own thing, not a reuse of "success" green */
+  --ai: #9085e9;
+  --ai-bright: #ab9ff2;
+  --ai-dim: #6f63c9;
+
+  /* Status / grade scale — dark-mode-validated steps (see dataviz skill
+     references/palette.md), distinct from both accents above so a grade
+     pill never gets confused with a brand or AI element */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+
+  /* Surfaces — the existing background ramp, named */
+  --surface-0: #000000;
+  --surface-1: #080808;
+  --surface-2: #0a0a0a;
+  --surface-3: #111111;
+  --surface-4: #161616;
+  --surface-5: #1a1a1a;
+
+  /* Borders — consolidated from the ad hoc #1a1a1a/#222/#252525/#333 mix */
+  --border-subtle: #1a1a1a;
+  --border: #222222;
+  --border-emphasis: #333333;
+
+  /* Text */
+  --text-primary: #ffffff;
+  --text-secondary: #aaaaaa;
+  --text-muted: #666666;
+  --text-faint: #444444;
+  --text-disabled: #2a2a2a;
+
+  /* Spacing — 4px base scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  /* Radius */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 10px;
+  --radius-full: 999px;
+
+  /* Elevation — outer shadow + inset top highlight implies a light source
+     on dark surfaces, instead of panels reading as flat-painted rectangles */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05);
+  --shadow-glow-brand: 0 0 20px rgba(0,230,118,0.25);
+  --shadow-glow-ai: 0 0 20px rgba(144,133,233,0.25);
+
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+}
 
 @layer base {
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -12,6 +81,8 @@
     height: 100dvh;
     overflow: hidden;
   }
+
+  .font-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
   #root {
     height: 100dvh;
@@ -36,9 +107,27 @@
   0%,100% { box-shadow: 0 0 0px rgba(0,230,118,0); }
   50%     { box-shadow: 0 0 18px rgba(0,230,118,0.35); }
 }
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes rowAccentSweep {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
 
 .anim-expand    { animation: expand .18s cubic-bezier(.4,0,.2,1) forwards; }
 .anim-fade      { animation: fadeIn .2s ease forwards; }
 .anim-spin      { animation: spin .7s linear infinite; }
 .anim-pulse     { animation: pulse 2.5s ease-in-out infinite; }
 .anim-btn-glow  { animation: btn-glow 2.4s ease-in-out infinite; }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-5) 50%, var(--surface-3) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  border-radius: var(--radius-md);
+}
+
+.press-feedback { transition: transform .1s ease, background .15s ease, border-color .15s ease, color .15s ease; }
+.press-feedback:active { transform: scale(0.96); }

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { Sparkles, ChevronDown, Check, Minus, Loader2 } from 'lucide-react'
 import { getCategoryTree } from '../api'
+import CategoryIcon from './CategoryIcon'
 
 const ALL_CATEGORIES = [
   'beauty','kitchen','health','toys','pets',
@@ -13,26 +15,27 @@ const s = {
     fontWeight: 600,
     letterSpacing: '0.1em',
     textTransform: 'uppercase',
-    color: '#555',
+    color: 'var(--text-secondary)',
     marginBottom: 10,
   },
   input: {
     width: '100%',
-    background: '#0d0d0d',
-    border: '1px solid #252525',
-    borderRadius: 4,
+    background: 'var(--surface-1)',
+    border: '1px solid var(--border-emphasis)',
+    borderRadius: 'var(--radius-md)',
     color: '#fff',
     fontSize: 14,
     fontWeight: 400,
     padding: '12px 14px',
     outline: 'none',
     transition: 'border-color .15s, background .15s',
-    fontFamily: 'inherit',
+    fontFamily: 'var(--font-mono)',
+    fontVariantNumeric: 'tabular-nums',
   },
   section: {
-    borderBottom: '1px solid #141414',
-    paddingBottom: 24,
-    marginBottom: 24,
+    borderBottom: '1px solid var(--surface-4)',
+    paddingBottom: 'var(--space-6)',
+    marginBottom: 'var(--space-6)',
   },
 }
 
@@ -73,12 +76,12 @@ function NumInput({ label, value, onChange, unit, min, max, step = 1 }) {
           onChange={handleChange}
           onFocus={handleFocus}
           onBlur={handleBlur}
-          style={{ ...s.input, paddingRight: unit ? 32 : 12, borderColor: focused ? '#00e676' : '#222' }}
+          style={{ ...s.input, paddingRight: unit ? 32 : 12, borderColor: focused ? 'var(--brand)' : 'var(--border)' }}
         />
         {unit && (
           <span style={{
             position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)',
-            fontSize: 12, color: '#3a3a3a', pointerEvents: 'none',
+            fontSize: 12, color: 'var(--text-faint)', pointerEvents: 'none',
           }}>
             {unit}
           </span>
@@ -92,6 +95,7 @@ function Toggle({ label, checked, onChange }) {
   return (
     <div
       onClick={() => onChange(!checked)}
+      className="press-feedback"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -104,8 +108,8 @@ function Toggle({ label, checked, onChange }) {
         style={{
           width: 36,
           height: 20,
-          borderRadius: 10,
-          background: checked ? '#00e676' : '#252525',
+          borderRadius: 'var(--radius-full)',
+          background: checked ? 'var(--brand)' : 'var(--surface-5)',
           position: 'relative',
           transition: 'background .15s',
           flexShrink: 0,
@@ -130,14 +134,14 @@ function Toggle({ label, checked, onChange }) {
 
 function Checkbox({ checked, indeterminate }) {
   return (
-    <div style={{
-      width: 15, height: 15, borderRadius: 3, flexShrink: 0,
-      border: checked || indeterminate ? 'none' : '1px solid #333',
-      background: checked || indeterminate ? '#00e676' : 'transparent',
+    <div className="press-feedback" style={{
+      width: 16, height: 16, borderRadius: 'var(--radius-sm)', flexShrink: 0,
+      border: checked || indeterminate ? 'none' : '1px solid var(--border-emphasis)',
+      background: checked || indeterminate ? 'var(--brand)' : 'transparent',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
-      {checked && <span style={{ color: '#000', fontSize: 10, fontWeight: 700, lineHeight: 1 }}>✓</span>}
-      {indeterminate && !checked && <span style={{ width: 7, height: 2, background: '#000', borderRadius: 1 }} />}
+      {checked && <Check size={11} strokeWidth={3} style={{ color: '#000' }} />}
+      {indeterminate && !checked && <Minus size={11} strokeWidth={3} style={{ color: '#000' }} />}
     </div>
   )
 }
@@ -243,24 +247,25 @@ function CategoryDropdown({ selected, onChange, tree, treeFailed }) {
       <span style={s.label}>Categories</span>
       <button
         onClick={() => setOpen((v) => !v)}
+        className="press-feedback"
         style={{
           ...s.input,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           cursor: 'pointer',
-          borderColor: open ? '#00e676' : '#222',
+          borderColor: open ? 'var(--brand)' : 'var(--border)',
           textAlign: 'left',
           width: '100%',
+          fontFamily: 'inherit',
         }}
       >
-        <span style={{ color: count === 0 ? '#444' : '#fff' }}>{label}</span>
-        <span style={{
-          fontSize: 10, color: '#444',
+        <span style={{ color: count === 0 ? 'var(--text-faint)' : '#fff' }}>{label}</span>
+        <ChevronDown size={13} style={{
+          color: 'var(--text-faint)',
           transform: open ? 'rotate(180deg)' : 'none',
           transition: 'transform .15s',
-          display: 'inline-block',
-        }}>▾</span>
+        }} />
       </button>
 
       {open && (
@@ -268,8 +273,8 @@ function CategoryDropdown({ selected, onChange, tree, treeFailed }) {
           className="anim-expand"
           style={{
             position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 100,
-            background: '#111', border: '1px solid #222', borderRadius: 4,
-            overflow: 'hidden', maxHeight: 360, overflowY: 'auto',
+            background: 'var(--surface-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+            overflow: 'hidden', maxHeight: 360, overflowY: 'auto', boxShadow: 'var(--shadow-lg)',
           }}
         >
           <div
@@ -278,17 +283,17 @@ function CategoryDropdown({ selected, onChange, tree, treeFailed }) {
             )}
             style={{
               padding: '10px 14px',
-              fontSize: 11, color: '#444',
+              fontSize: 11, color: 'var(--text-faint)',
               cursor: 'pointer',
-              borderBottom: '1px solid #1a1a1a',
+              borderBottom: '1px solid var(--border-subtle)',
               display: 'flex', justifyContent: 'space-between',
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
               transition: 'color .12s',
-              position: 'sticky', top: 0, background: '#111', zIndex: 1,
+              position: 'sticky', top: 0, background: 'var(--surface-3)', zIndex: 1,
             }}
             onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
-            onMouseLeave={(e) => e.currentTarget.style.color = '#444'}
+            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-faint)'}
           >
             <span>{allSelected ? 'Deselect all' : 'Select all'}</span>
           </div>
@@ -304,12 +309,13 @@ function CategoryDropdown({ selected, onChange, tree, treeFailed }) {
               <div key={key}>
                 <div
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px' }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#161616'}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-4)'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 >
                   <div onClick={() => onChange(toggleParent(selected, tree, key))} style={{ cursor: 'pointer', display: 'flex' }}>
                     <Checkbox checked={parentChecked} indeterminate={parentIndeterminate} />
                   </div>
+                  <CategoryIcon category={key} size={14} style={{ color: parentChecked || parentIndeterminate ? 'var(--brand)' : 'var(--text-faint)', flexShrink: 0, transition: 'color .15s' }} />
                   <div
                     onClick={() => children.length && toggleExpand(key)}
                     style={{
@@ -321,11 +327,11 @@ function CategoryDropdown({ selected, onChange, tree, treeFailed }) {
                       {parentLabel}
                     </span>
                     {children.length > 0 && (
-                      <span style={{
-                        fontSize: 10, color: '#444',
+                      <ChevronDown size={12} style={{
+                        color: 'var(--text-faint)',
                         transform: isExpanded ? 'rotate(180deg)' : 'none',
                         transition: 'transform .15s',
-                      }}>▾</span>
+                      }} />
                     )}
                   </div>
                 </div>
@@ -338,7 +344,7 @@ function CategoryDropdown({ selected, onChange, tree, treeFailed }) {
                       key={child.id}
                       onClick={() => onChange(toggleChild(selected, tree, key, child.name))}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px 8px 39px', cursor: 'pointer' }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#161616'}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-4)'}
                       onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                     >
                       <Checkbox checked={childChecked} />
@@ -351,7 +357,7 @@ function CategoryDropdown({ selected, onChange, tree, treeFailed }) {
           })}
 
           {treeFailed && (
-            <div style={{ padding: '10px 14px', fontSize: 11, color: '#665', lineHeight: 1.4 }}>
+            <div style={{ padding: '10px 14px', fontSize: 11, color: 'var(--status-serious)', lineHeight: 1.4 }}>
               Subcategories unavailable right now — selecting a category scans it whole.
             </div>
           )}
@@ -416,26 +422,33 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
       width: 300,
       flexShrink: 0,
       /* Thin green separator line */
-      borderRight: '1px solid #00e676',
+      borderRight: '1px solid var(--brand)',
       boxShadow: '1px 0 12px rgba(0,230,118,0.06)',
       height: '100%',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
+      background: 'var(--surface-0)',
     }}>
       <div style={{ flex: 1, overflowY: 'auto', padding: '28px 26px 0' }}>
 
-        <div style={s.section}>
-          <Toggle
-            label="AI picks categories"
-            checked={aiMode}
-            onChange={setAiMode}
-          />
-          <p style={{ fontSize: 11, color: '#3a3a3a', marginTop: 10, lineHeight: 1.5 }}>
-            {aiMode
-              ? 'Claude picks the categories worth sourcing from today — no manual selection needed.'
-              : 'Pick categories manually below.'}
-          </p>
+        <div style={{
+          ...s.section, padding: 14, margin: '0 0 var(--space-6)', borderBottom: 'none',
+          background: aiMode ? 'rgba(144,133,233,0.06)' : 'transparent',
+          border: `1px solid ${aiMode ? 'rgba(144,133,233,0.22)' : 'var(--surface-4)'}`,
+          borderRadius: 'var(--radius-md)', transition: 'background .15s, border-color .15s',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: aiMode ? 10 : 0 }}>
+            <Sparkles size={13} style={{ color: aiMode ? 'var(--ai)' : 'var(--text-faint)', flexShrink: 0, transition: 'color .15s' }} />
+            <div style={{ flex: 1 }}>
+              <Toggle label="AI picks categories" checked={aiMode} onChange={setAiMode} />
+            </div>
+          </div>
+          {aiMode && (
+            <p style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: 1.5 }}>
+              Claude picks the categories worth sourcing from today — no manual selection needed.
+            </p>
+          )}
         </div>
 
         {!aiMode && (
@@ -462,7 +475,7 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
               onChange={setMinPrice}
               unit="$" min={0}
             />
-            <span style={{ color: '#333', fontSize: 16, marginTop: -2 }}>–</span>
+            <span style={{ color: 'var(--text-faint)', fontSize: 16, marginTop: -2 }}>–</span>
             <NumInput
               label=""
               value={maxPrice}
@@ -535,7 +548,7 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
         </div>
       </div>
 
-      <div style={{ padding: '20px 26px 28px', borderTop: '1px solid #141414' }}>
+      <div style={{ padding: '20px 26px 28px', borderTop: '1px solid var(--surface-4)' }}>
         <button
           onClick={handleScan}
           disabled={!canScan}
@@ -543,10 +556,10 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
           style={{
             width: '100%',
             padding: '15px 0',
-            background: canScan ? '#00e676' : '#0d0d0d',
-            color: canScan ? '#000' : '#2a2a2a',
-            border: canScan ? 'none' : '1px solid #1a1a1a',
-            borderRadius: 4,
+            background: canScan ? 'var(--brand)' : 'var(--surface-1)',
+            color: canScan ? '#000' : 'var(--text-disabled)',
+            border: canScan ? 'none' : '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
             fontSize: 13,
             fontWeight: 700,
             letterSpacing: '0.06em',
@@ -558,29 +571,27 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
             alignItems: 'center',
             justifyContent: 'center',
             gap: 8,
+            boxShadow: canScan ? 'var(--shadow-sm)' : 'none',
           }}
-          onMouseEnter={e => { if (canScan) e.currentTarget.style.background = '#14ffaa' }}
-          onMouseLeave={e => { if (canScan) e.currentTarget.style.background = '#00e676' }}
+          onMouseEnter={e => { if (canScan) e.currentTarget.style.background = 'var(--brand-bright)' }}
+          onMouseLeave={e => { if (canScan) e.currentTarget.style.background = 'var(--brand)' }}
           onMouseDown={e => { if (canScan) e.currentTarget.style.transform = 'scale(0.985)' }}
           onMouseUp={e => { e.currentTarget.style.transform = 'scale(1)' }}
         >
           {loading ? (
             <>
-              <span
-                className="anim-spin"
-                style={{
-                  width: 13, height: 13, borderRadius: '50%',
-                  border: '2px solid rgba(0,0,0,0.25)',
-                  borderTopColor: '#000',
-                  display: 'inline-block',
-                }}
-              />
+              <Loader2 size={14} className="anim-spin" />
               {aiMode ? 'Picking categories...' : 'Scanning'}
             </>
-          ) : aiMode ? 'Scan Trending' : 'Scan Now'}
+          ) : (
+            <>
+              {aiMode && <Sparkles size={14} />}
+              {aiMode ? 'Scan Trending' : 'Scan Now'}
+            </>
+          )}
         </button>
         {!aiMode && categoryCount === 0 && (
-          <p style={{ fontSize: 11, color: '#2a2a2a', textAlign: 'center', marginTop: 10 }}>
+          <p style={{ fontSize: 11, color: 'var(--text-disabled)', textAlign: 'center', marginTop: 10 }}>
             Select at least one category
           </p>
         )}

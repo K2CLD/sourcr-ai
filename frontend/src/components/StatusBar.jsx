@@ -18,12 +18,13 @@ export default function StatusBar({ onLoadScan }) {
   return (
     <header style={{
       height: 64,
-      borderBottom: '1px solid #1a1a1a',
+      borderBottom: '1px solid var(--border-subtle)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
       padding: '0 32px',
       flexShrink: 0,
+      background: 'var(--surface-0)',
     }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={{
@@ -44,9 +45,9 @@ export default function StatusBar({ onLoadScan }) {
             left: 0,
             width: '100%',
             height: 2,
-            background: '#00e676',
+            background: 'var(--brand)',
             borderRadius: 1,
-            boxShadow: '0 0 8px rgba(0,230,118,0.7), 0 0 20px rgba(0,230,118,0.3)',
+            boxShadow: 'var(--shadow-glow-brand)',
           }} />
         </span>
         <span style={{
@@ -54,7 +55,7 @@ export default function StatusBar({ onLoadScan }) {
           fontWeight: 400,
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
-          color: '#3a3a3a',
+          color: 'var(--text-faint)',
           lineHeight: 1,
         }}>
           AI-Powered Amazon Sourcing
@@ -70,13 +71,13 @@ export default function StatusBar({ onLoadScan }) {
             width: 7,
             height: 7,
             borderRadius: '50%',
-            background: ok === null ? '#333' : ok ? '#00e676' : '#ff4444',
+            background: ok === null ? 'var(--border-emphasis)' : ok ? 'var(--brand)' : 'var(--status-critical)',
             display: 'block',
             flexShrink: 0,
             ...(ok ? { boxShadow: '0 0 6px rgba(0,230,118,0.6)' } : {}),
           }}
         />
-        <span style={{ fontSize: 11, color: '#444', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+        <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-faint)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
           {ok === null ? 'Connecting' : ok ? 'Live' : 'Offline'}
         </span>
       </div>
