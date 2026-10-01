@@ -138,13 +138,17 @@ async function checkViaSpApi(asin) {
   const allLinks = restrictions.flatMap((r) =>
     (r.reasons || []).flatMap((reason) => reason.links || [])
   );
+  // A "request approval" link means an approval application PROCESS exists —
+  // i.e. manual action is required — not that one can be skipped. Any
+  // restriction at all means this is gated and not auto-ungatable; the link
+  // (if present) is kept only as a reference for manually pursuing approval.
   const approvalLink = allLinks.find(
     (l) => l.title?.toLowerCase().includes("request") || l.resource?.includes("approval")
   );
 
   return {
     gated: true,
-    autoUngatable: !!approvalLink,
+    autoUngatable: false,
     method: "sp-api",
     approvalUrl: approvalLink?.resource || null,
     notes: restrictions[0]?.reasons?.[0]?.message || "Restricted",

@@ -124,13 +124,14 @@ function postFilter(products, opts) {
   });
 }
 
-// Runs after batchCheckUngating — drops leads that are gated with no auto-ungate path,
-// i.e. not actually sellable today without a manual Seller Central approval process.
-// Leads where ungating status is unknown/heuristic-null are kept (not penalized for
-// missing data, consistent with preFilter's treatment of missing rating/reviews/etc).
+// Runs after batchCheckUngating — keeps only leads SP-API confirmed as fully open
+// (gated === false). Any restriction at all fails this gate, regardless of whether
+// Amazon offers a "request approval" link (that link means an application process
+// exists, not that one can be skipped — see spapi.js checkViaSpApi). Unknown status
+// (gated === null) also fails: "confirmed open" means confirmed, not unconfirmed.
 // This is a hard, unconditional gate — there is no options flag to disable it.
 function filterByUngating(products) {
-  return products.filter((p) => !(p.ungating?.gated === true && p.ungating?.autoUngatable === false));
+  return products.filter((p) => p.ungating?.gated === false);
 }
 
 // Scan a single Amazon category for profitable sourcing leads.
@@ -178,7 +179,7 @@ async function scanCategory(categoryName, options = {}) {
 
   const sellableToday = filterByUngating(withUngating);
   if (sellableToday.length < withUngating.length) {
-    console.log(`[Scanner] ${withUngating.length - sellableToday.length} lead(s) dropped in ${categoryName} — gated with no auto-ungate path`);
+    console.log(`[Scanner] ${withUngating.length - sellableToday.length} lead(s) dropped in ${categoryName} — gated, requires approval`);
   }
 
   console.log(`[Scanner] Running AI evaluation on ${sellableToday.length} surviving leads in ${categoryName}...`);
@@ -307,26 +308,44 @@ async function scanAsin(asin, buyPrice = null, options = {}) {
 
   const filterFlags = [];
   if (!passesPreFilter || !passesPostFilter) filterFlags.push("Outside your active scan filters (price/ROI/BSR/etc.)");
-  if (!passesUngating) filterFlags.push("Gated with no auto-ungate path — not sellable today");
+  if (!passesUngating) filterFlags.push("Gated — requires approval, not sellable today");
 
   return { ...withUngating, flags: [...(withUngating.flags || []), ...filterFlags] };
 }
 
+// Leads whose AI pass errored (aiAnalysis.error set, no score) sort to the bottom
+// rather than being dropped — a transient Claude API failure on one lead shouldn't
+// shrink the shortlist or lose it to a same-family variant that happened to score.
+function byConfidenceDesc(a, b) {
+  const scoreA = a.aiAnalysis?.confidenceScore;
+  const scoreB = b.aiAnalysis?.confidenceScore;
+  if (scoreA == null && scoreB == null) return 0;
+  if (scoreA == null) return 1;
+  if (scoreB == null) return -1;
+  return scoreB - scoreA;
+}
+
 // Ranks leads by Claude's confidenceScore (highest first) and returns the top `limit`.
-// Leads whose AI pass errored (aiAnalysis.error set, no score) sort to the bottom rather
-// than being dropped — a transient Claude API failure on one lead shouldn't shrink the
-// shortlist. Callers wanting the full set for persistence (e.g. Supabase) should keep a
-// reference to the pre-rank array; this only slices for display/API-response purposes.
+// Callers wanting the full set for persistence (e.g. Supabase) should keep a reference
+// to the pre-rank array; this only slices for display/API-response purposes.
 function rankByConfidence(leads, limit = 20) {
-  const ranked = [...leads].sort((a, b) => {
-    const scoreA = a.aiAnalysis?.confidenceScore;
-    const scoreB = b.aiAnalysis?.confidenceScore;
-    if (scoreA == null && scoreB == null) return 0;
-    if (scoreA == null) return 1;
-    if (scoreB == null) return -1;
-    return scoreB - scoreA;
-  });
-  return ranked.slice(0, limit);
+  return [...leads].sort(byConfidenceDesc).slice(0, limit);
+}
+
+// Collapses color/size/pack variants of the same base product (Keepa's parentAsin,
+// already present on every product — see keepa.js) down to a single lead: the
+// best-performing variant by the same confidence ranking used for the final top-20 cut.
+// A lead with no parentAsin (not part of any Keepa-known variation family) groups with
+// nothing else and always survives on its own. Run this BEFORE rankByConfidence so the
+// top 20 shows 20 distinct products, not 20 slots partly consumed by sibling variants.
+function dedupeVariants(leads) {
+  const groups = new Map(); // groupKey -> best lead seen so far in that group
+  for (const lead of leads) {
+    const key = lead.parentAsin || lead.asin;
+    const current = groups.get(key);
+    if (!current || byConfidenceDesc(lead, current) < 0) groups.set(key, lead);
+  }
+  return [...groups.values()];
 }
 
 module.exports = {
@@ -336,5 +355,6 @@ module.exports = {
   scanSupplierProducts,
   scanAsin,
   rankByConfidence,
+  dedupeVariants,
   DEFAULT_OPTIONS,
 };

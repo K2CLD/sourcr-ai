@@ -14,7 +14,7 @@ const { CATEGORY_IDS, getCategoryTree } = require("./backend/keepa");
 const { calculateProfit, checkApproval, fallbackCalculate } = require("./backend/selleramp");
 const { scoreProduct, summarize } = require("./backend/scorer");
 const { loadSupplierFile, addManualProduct } = require("./backend/supplier");
-const { scanCategory, scanMultipleCategories, scanTrendingCategories, scanSupplierProducts, scanAsin, rankByConfidence, DEFAULT_OPTIONS } = require("./backend/scanner");
+const { scanCategory, scanMultipleCategories, scanTrendingCategories, scanSupplierProducts, scanAsin, rankByConfidence, dedupeVariants, DEFAULT_OPTIONS } = require("./backend/scanner");
 const { runScan, startScheduler, stopScheduler, getStatus, getLastResults } = require("./backend/scheduler");
 const { analyzeLead, analyzeLeads, quickTake, findSupplierSources } = require("./backend/ai");
 const { checkUngating, hasCredentials } = require("./backend/spapi");
@@ -94,8 +94,9 @@ router.post("/scan/category", async (req, res) => {
 
   try {
     const leads = await scanCategory(category, options);
-    const top = rankByConfidence(leads);
-    res.json({ category, count: top.length, totalMatched: leads.length, leads: top });
+    const deduped = dedupeVariants(leads);
+    const top = rankByConfidence(deduped);
+    res.json({ category, count: top.length, totalMatched: deduped.length, leads: top });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -120,8 +121,9 @@ router.post("/scan/categories", async (req, res) => {
     // Full filtered list (every lead that passed the hard gates, not just the top 20) is
     // what gets persisted — only the API response/UI display is curated down to the top 20.
     autoSaveScan({ categories, options, leads, warning });
-    const top = rankByConfidence(leads);
-    res.json({ categories, count: top.length, totalMatched: leads.length, leads: top, ...(warning ? { warning } : {}) });
+    const deduped = dedupeVariants(leads);
+    const top = rankByConfidence(deduped);
+    res.json({ categories, count: top.length, totalMatched: deduped.length, leads: top, ...(warning ? { warning } : {}) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -142,8 +144,9 @@ router.post("/scan/trending", async (req, res) => {
     // in scan history without a migration — see database/schema.sql. Full list saved,
     // top 20 returned — same split as /scan/categories.
     autoSaveScan({ categories, options: { ...options, aiPicks: picks }, leads, warning });
-    const top = rankByConfidence(leads);
-    res.json({ picks, categories, count: top.length, totalMatched: leads.length, leads: top, ...(warning ? { warning } : {}) });
+    const deduped = dedupeVariants(leads);
+    const top = rankByConfidence(deduped);
+    res.json({ picks, categories, count: top.length, totalMatched: deduped.length, leads: top, ...(warning ? { warning } : {}) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -188,8 +191,9 @@ router.post("/scan/supplier", async (req, res) => {
 
     const leads = await scanSupplierProducts(supplierProducts, options);
     autoSaveScan({ categories: ["supplier"], options, leads });
-    const top = rankByConfidence(leads);
-    res.json({ count: top.length, totalMatched: leads.length, leads: top });
+    const deduped = dedupeVariants(leads);
+    const top = rankByConfidence(deduped);
+    res.json({ count: top.length, totalMatched: deduped.length, leads: top });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

@@ -207,6 +207,10 @@ async function getProductDetails(asins) {
 
     return {
       asin: p.asin,
+      // Keepa groups color/size/pack variants of the same listing under a shared
+      // parentAsin (already present on every product response, no extra cost) —
+      // used in scanner.js to dedupe near-identical variants before ranking.
+      parentAsin: p.parentAsin || null,
       title: p.title,
       brand: p.brand,
       price,
