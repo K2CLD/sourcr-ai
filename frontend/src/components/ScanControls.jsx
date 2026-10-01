@@ -38,6 +38,30 @@ const s = {
 
 function NumInput({ label, value, onChange, unit, min, max, step = 1 }) {
   const [focused, setFocused] = useState(false)
+  // Local text mirrors the field while focused, so backspacing to empty (or typing
+  // "-" or "1.") can show as genuinely empty/partial instead of snapping to 0 —
+  // parseFloat('') is NaN, and the old `parseFloat(e.target.value) || 0` coerced
+  // that straight to 0 on every keystroke. Only valid numbers get pushed to the
+  // parent as you type; blurring with an empty/invalid value reverts the display
+  // to the last valid number (parent state was never actually touched by the bad input).
+  const [text, setText] = useState(String(value))
+
+  const handleFocus = () => {
+    setFocused(true)
+    setText(String(value))
+  }
+
+  const handleChange = (e) => {
+    const raw = e.target.value
+    setText(raw)
+    const parsed = parseFloat(raw)
+    if (raw !== '' && raw !== '-' && !Number.isNaN(parsed)) onChange(parsed)
+  }
+
+  const handleBlur = () => setFocused(false)
+
+  const displayValue = focused ? text : String(value)
+
   return (
     <div>
       <span style={s.label}>{label}</span>
@@ -45,10 +69,10 @@ function NumInput({ label, value, onChange, unit, min, max, step = 1 }) {
         <input
           type="number"
           min={min} max={max} step={step}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          value={displayValue}
+          onChange={handleChange}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           style={{ ...s.input, paddingRight: unit ? 32 : 12, borderColor: focused ? '#00e676' : '#222' }}
         />
         {unit && (
