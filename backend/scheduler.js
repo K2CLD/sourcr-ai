@@ -12,7 +12,7 @@ const DEFAULT_SCAN_OPTIONS = {
   minProfit: 3,
   minGrade: "B",
   maxBSR: 30000,
-  pages: 2,
+  maxAsinsPerCategory: 200,
 };
 
 let scheduledTask = null;

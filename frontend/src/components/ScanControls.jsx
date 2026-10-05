@@ -385,7 +385,7 @@ function CategoryDropdown({ selected, onChange, tree, treeFailed }) {
 
 // aiMode (Claude picks categories — see backend/ai.js pickTrendingCategories) lives in App
 // so the Keepa token estimate can follow it; the manual dropdown is the explicit override.
-export default function ScanControls({ onScan, loading, aiMode, setAiMode, tokenBlocked, selected, setSelected }) {
+export default function ScanControls({ onScan, loading, aiMode, setAiMode, maxAsins, setMaxAsins, tokenBlocked, selected, setSelected }) {
   const [minROI, setMinROI]       = useState(30)
   const [minProfit, setMinProfit] = useState(3)
   const [minPrice, setMinPrice]   = useState(10)
@@ -413,7 +413,7 @@ export default function ScanControls({ onScan, loading, aiMode, setAiMode, token
   const handleScan = () => {
     if (!canScan) return
     const options = {
-      minROI, minProfit, minPrice, maxPrice, maxBSR, minGrade: 'D', pages: 2,
+      minROI, minProfit, minPrice, maxPrice, maxBSR, minGrade: 'D', maxAsinsPerCategory: maxAsins,
       maxSellers, excludeAmazonSeller, minMonthlyUnits, excludeHazmat,
       minReviews, minRating, excludePrivateLabel,
     }
@@ -493,7 +493,10 @@ export default function ScanControls({ onScan, loading, aiMode, setAiMode, token
             </div>
           </div>
           <div style={{ ...s.section, marginBottom: 0 }}>
-            <NumInput label="Max BSR" value={maxBSR} onChange={setMaxBSR} min={100} step={1000} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <NumInput label="Max BSR" value={maxBSR} onChange={setMaxBSR} min={100} step={1000} />
+              <NumInput label="ASINs / Category" value={maxAsins} onChange={setMaxAsins} min={50} max={1000} step={50} />
+            </div>
           </div>
         </div>
 

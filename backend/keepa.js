@@ -184,23 +184,28 @@ const count = (v) => (v != null && v >= 0 ? v : null);
 // unsorted. Now: Buy Box price band, BSR ceiling, best sellers first, and one variation per
 // parent — otherwise a single product's colour/size variants (which share a BSR) can fill
 // most of the results.
-// Returns the page's ASINs plus the tokens the call actually cost.
-async function searchCategory(categoryId, { minPrice, maxPrice, maxBSR }, page = 0) {
+// nodeIds: Keepa category node IDs (a root category or specific subcategories).
+// perPage: Keepa accepts more than 50 — verified live, perPage 200 returned 200 ASINs for
+// 12 tokens (a 50-ASIN page costs 11).
+// Returns the page's ASINs, Keepa's total match count, and the tokens the call cost.
+async function searchCategory(nodeIds, { minPrice, maxPrice, maxBSR }, page = 0, perPage = 200) {
   const selection = {
-    categories_include: [CATEGORY_IDS[categoryId]],
+    categories_include: nodeIds,
     current_BUY_BOX_SHIPPING_gte: Math.round(minPrice * 100),
     current_BUY_BOX_SHIPPING_lte: Math.round(maxPrice * 100),
     current_SALES_gte: 1,
     current_SALES_lte: maxBSR,
     sort: [["current_SALES", "asc"]],
     singleVariation: true,
-    perPage: 50,
+    perPage,
     page,
   };
 
   const res = await keepaGet("query", { domain: 1, selection: JSON.stringify(selection) });
+  const asins = res.data.asinList || [];
+  console.log(`[Keepa] /query selection=${JSON.stringify(selection)} -> totalResults=${res.data.totalResults ?? "?"}, returned=${asins.length}, tokens=${res.data.tokensConsumed ?? "?"}`);
 
-  return { asins: res.data.asinList || [], tokensConsumed: res.data.tokensConsumed ?? null };
+  return { asins, totalResults: res.data.totalResults ?? null, tokensConsumed: res.data.tokensConsumed ?? null };
 }
 
 // Share of the last `days` during which Amazon itself had an offer on the listing,

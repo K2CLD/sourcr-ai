@@ -19,7 +19,13 @@ export default function App() {
   // AI-driven category discovery is the default per-session behavior — Claude picks which
   // categories are worth scanning today instead of requiring manual selection every time.
   const [aiMode, setAiMode]       = useState(true)
-  const tokens = useTokenEstimate({ aiMode, categories: Object.keys(selected), scanning: loading })
+  const [maxAsins, setMaxAsins]   = useState(200) // ASINs pulled per category / selected subcategory
+  // Partially-selected categories are scanned per subcategory (see backend searchUnits), so
+  // the estimate needs those names; fully-selected ('all') categories are searched whole.
+  const partialSubcategories = Object.values(selected).filter(Array.isArray).flat()
+  const tokens = useTokenEstimate({
+    aiMode, categories: Object.keys(selected), subcategories: partialSubcategories, maxAsins, scanning: loading,
+  })
   // Blocks only a confirmed shortfall — an unavailable estimate never blocks scanning,
   // and a scan too big for one bucket runs in batches instead.
   const tokenBlocked = !!tokens.estimate && !tokens.estimate.enough && !tokens.estimate.batched
@@ -84,6 +90,8 @@ export default function App() {
           loading={loading}
           aiMode={aiMode}
           setAiMode={setAiMode}
+          maxAsins={maxAsins}
+          setMaxAsins={setMaxAsins}
           tokenBlocked={tokenBlocked}
           selected={selected}
           setSelected={setSelected}

@@ -123,12 +123,12 @@ router.get("/tokens", async (req, res) => {
 // Estimated Keepa cost of scanning the given categories, from rolling averages of real
 // token usage. POST /tokens/estimate  { categories?: [...], trendingCount?: number }
 router.post("/tokens/estimate", async (req, res) => {
-  const { categories = [], trendingCount = 0 } = req.body || {};
+  const { categories = [], subcategories = [], trendingCount = 0, maxAsinsPerCategory } = req.body || {};
   const invalid = categories.filter((c) => !CATEGORY_IDS[c]);
   if (invalid.length) return res.status(400).json({ error: `Unknown categories: ${invalid.join(", ")}` });
 
   try {
-    res.json(await preflightTokens({ categories, trendingCount }));
+    res.json(await preflightTokens({ categories, subcategories, trendingCount, ...(maxAsinsPerCategory ? { maxAsinsPerCategory } : {}) }));
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
@@ -146,7 +146,7 @@ router.post("/scan/category", async (req, res) => {
     return res.status(400).json({ error: `Unknown category. Valid: ${Object.keys(CATEGORY_IDS).join(", ")}` });
   }
 
-  if (!(await tokenGate(res, { categories: [category] }))) return;
+  if (!(await tokenGate(res, { categories: [category], subcategories: options?.subcategories, maxAsinsPerCategory: options?.maxAsinsPerCategory }))) return;
 
   try {
     const leads = await scanCategory(category, options);
@@ -168,7 +168,7 @@ router.post("/scan/categories", async (req, res) => {
     return res.status(400).json({ error: `Unknown categories: ${invalid.join(", ")}` });
   }
 
-  if (!(await tokenGate(res, { categories }))) return;
+  if (!(await tokenGate(res, { categories, subcategories: options?.subcategories, maxAsinsPerCategory: options?.maxAsinsPerCategory }))) return;
 
   try {
     const leads = await scanMultipleCategories(categories, options);
@@ -191,7 +191,7 @@ router.post("/scan/categories", async (req, res) => {
 router.post("/scan/trending", async (req, res) => {
   const { options, count } = req.body;
 
-  if (!(await tokenGate(res, { trendingCount: count ?? 4 }))) return;
+  if (!(await tokenGate(res, { trendingCount: count ?? 4, maxAsinsPerCategory: options?.maxAsinsPerCategory }))) return;
 
   try {
     const { picks, categories, leads } = await scanTrendingCategories(options, { count });

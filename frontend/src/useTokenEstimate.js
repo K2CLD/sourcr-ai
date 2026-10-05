@@ -6,16 +6,23 @@ const TRENDING_COUNT = 4 // matches the backend's default AI pick count
 // Keepa token estimate for the current scan target. Re-estimates 300ms after the category
 // selection settles, refreshes every 30s while idle (tokens refill), and during a scan
 // polls the live balance the backend captures from each Keepa response.
-export default function useTokenEstimate({ aiMode, categories, scanning }) {
+export default function useTokenEstimate({ aiMode, categories, subcategories = [], maxAsins, scanning }) {
   const [estimate, setEstimate] = useState(null)
   const [failed, setFailed] = useState(false)
   const [liveTokens, setLiveTokens] = useState(null)
   const categoriesKey = [...categories].sort().join(',')
+  const subcategoriesKey = [...subcategories].sort().join('|')
   const requestId = useRef(0)
 
   useEffect(() => {
     if (scanning) return
-    const scope = aiMode ? { trendingCount: TRENDING_COUNT } : { categories: categoriesKey ? categoriesKey.split(',') : [] }
+    const scope = aiMode
+      ? { trendingCount: TRENDING_COUNT, maxAsinsPerCategory: maxAsins }
+      : {
+          categories: categoriesKey ? categoriesKey.split(',') : [],
+          subcategories: subcategoriesKey ? subcategoriesKey.split('|') : [],
+          maxAsinsPerCategory: maxAsins,
+        }
 
     const run = async () => {
       const id = ++requestId.current
@@ -32,7 +39,7 @@ export default function useTokenEstimate({ aiMode, categories, scanning }) {
     const debounce = setTimeout(run, 300)
     const refresh = setInterval(run, 30000)
     return () => { clearTimeout(debounce); clearInterval(refresh) }
-  }, [aiMode, categoriesKey, scanning])
+  }, [aiMode, categoriesKey, subcategoriesKey, maxAsins, scanning])
 
   useEffect(() => {
     if (!scanning) { setLiveTokens(null); return }

@@ -15,7 +15,7 @@ const DEFAULT_COSTS = {
   perAsin: 1,        // one ASIN in a basic /product call (stats + history cost nothing extra)
   perAsinFull: 4,    // one ASIN with buybox=1 + rating=1 (measured: 1 + 2 buybox + 1 rating)
 };
-const DEFAULT_ASINS_PER_CATEGORY = 100;
+const DEFAULT_ASINS_PER_CATEGORY = 200; // scanner.js DEFAULT_OPTIONS.maxAsinsPerCategory
 // How many of a category's ASINs survive the basic filters and get the full (Buy Box)
 // fetch — measured 23–29 of ~90 on a kitchen scan before real data exists.
 const DEFAULT_FULL_ASINS_PER_CATEGORY = 30;
@@ -32,6 +32,8 @@ function load() {
   stats.calls = { categoryQuery: [], perAsin: [], perAsinFull: [], ...stats.calls };
   stats.asinsPerCategory = stats.asinsPerCategory || {};
   stats.fullAsinsPerCategory = stats.fullAsinsPerCategory || {};
+  stats.matchesPerCategory = stats.matchesPerCategory || {}; // Keepa totalResults per search
+  stats.fullFetchRatio = stats.fullFetchRatio || {};          // share of pulled ASINs reaching the Buy Box fetch
   return stats;
 }
 
@@ -51,15 +53,19 @@ function push(list, value) {
 
 const average = (list) => (list?.length ? list.reduce((a, b) => a + b, 0) / list.length : null);
 
-// tokensConsumed summed over every /query page of one category scan
-function recordCategoryQuery(category, tokensConsumed, asinCount) {
+function pushFor(map, key, value) {
+  map[key] = map[key] || [];
+  push(map[key], value);
+}
+
+// tokensConsumed summed over every /query page of one category scan; totalResults is how
+// many products Keepa matched (usually far more than the ASIN cap pulls).
+function recordCategoryQuery(category, tokensConsumed, asinCount, totalResults = null) {
   const s = load();
   if (Number.isFinite(tokensConsumed)) push(s.calls.categoryQuery, tokensConsumed);
-  if (category && Number.isFinite(asinCount)) {
-    s.asinsPerCategory[category] = s.asinsPerCategory[category] || [];
-    push(s.asinsPerCategory[category], asinCount);
-  }
-  console.log(`[Tokens] ${category} category query: ${tokensConsumed} tokens, ${asinCount} ASINs returned`);
+  if (category && Number.isFinite(asinCount)) pushFor(s.asinsPerCategory, category, asinCount);
+  if (category && Number.isFinite(totalResults)) pushFor(s.matchesPerCategory, category, totalResults);
+  console.log(`[Tokens] ${category} category query: ${tokensConsumed} tokens, ${asinCount} ASINs pulled (Keepa matched ${totalResults ?? "?"})`);
   save();
 }
 
@@ -71,12 +77,12 @@ function recordProductLookup(tokensConsumed, asinCount, type = "perAsin") {
   save();
 }
 
-// How many of a category scan's ASINs needed the full fetch
-function recordFullAsins(category, asinCount) {
+// How many of a category scan's pulled ASINs needed the full fetch
+function recordFullAsins(category, asinCount, pulledCount = null) {
   if (!category || !Number.isFinite(asinCount)) return;
   const s = load();
-  s.fullAsinsPerCategory[category] = s.fullAsinsPerCategory[category] || [];
-  push(s.fullAsinsPerCategory[category], asinCount);
+  pushFor(s.fullAsinsPerCategory, category, asinCount);
+  if (pulledCount > 0) pushFor(s.fullFetchRatio, category, asinCount / pulledCount);
   save();
 }
 
@@ -99,20 +105,27 @@ function expectedFrom(byCategory, category, fallback) {
   return perCategory.length ? average(perCategory) : fallback;
 }
 
-function expectedAsins(category) {
-  return expectedFrom(load().asinsPerCategory, category, DEFAULT_ASINS_PER_CATEGORY);
+// With a cap: min(cap, how many Keepa usually matches). Past pull counts alone would
+// understate a raised cap — they were limited by whatever cap was in force then.
+function expectedAsins(category, cap = null) {
+  const s = load();
+  if (cap) return Math.min(cap, expectedFrom(s.matchesPerCategory, category, Infinity));
+  return expectedFrom(s.asinsPerCategory, category, DEFAULT_ASINS_PER_CATEGORY);
 }
 
-function expectedFullAsins(category) {
-  return expectedFrom(load().fullAsinsPerCategory, category, DEFAULT_FULL_ASINS_PER_CATEGORY);
+function expectedFullAsins(category, cap = null) {
+  const s = load();
+  const ratio = expectedFrom(s.fullFetchRatio, category, null);
+  if (ratio != null) return ratio * expectedAsins(category, cap);
+  return expectedFrom(s.fullAsinsPerCategory, category, DEFAULT_FULL_ASINS_PER_CATEGORY);
 }
 
-function estimateCategoryCost(category) {
+function estimateCategoryCost(category, cap = null) {
   const { categoryQuery, perAsin, perAsinFull } = getCosts();
   return Math.ceil(
     categoryQuery.value +
-    expectedAsins(category) * perAsin.value +
-    expectedFullAsins(category) * perAsinFull.value
+    expectedAsins(category, cap) * perAsin.value +
+    expectedFullAsins(category, cap) * perAsinFull.value
   );
 }
 
@@ -120,8 +133,9 @@ function estimateCategoryCost(category) {
 const maxBucket = (refillRate) => (refillRate > 0 ? refillRate * 60 : null);
 
 // categories: names, or nulls for not-yet-picked trending categories.
-function estimateScan(categories, tokenState) {
-  const perCategory = categories.map((c) => ({ category: c, tokens: estimateCategoryCost(c) }));
+// cap: ASINs pulled per category (scanner maxAsinsPerCategory).
+function estimateScan(categories, tokenState, cap = null) {
+  const perCategory = categories.map((c) => ({ category: c, tokens: estimateCategoryCost(c, cap) }));
   const needed = perCategory.reduce((sum, c) => sum + c.tokens, 0);
   const tokensLeft = tokenState.tokensLeft;
   const refillRate = tokenState.refillRate;

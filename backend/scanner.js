@@ -1,4 +1,4 @@
-const { searchCategory, getProductDetails, getFreshTokenState, fetchTokenStatus, CATEGORY_IDS } = require("./keepa");
+const { searchCategory, getProductDetails, getCategoryTree, getFreshTokenState, fetchTokenStatus, CATEGORY_IDS } = require("./keepa");
 const { batchCalculateProfit } = require("./profit");
 const { scoreProducts, filterByGrade } = require("./scorer");
 const { getMatched } = require("./supplier");
@@ -9,6 +9,7 @@ const keepaTokens = require("./keepaTokens");
 const { createFunnel } = require("./funnel");
 
 const KEEPA_BATCH_SIZE = 100; // Keepa's actual /product limit (was wrongly set to 20 — 5x more requests than needed)
+const SEARCH_PAGE_SIZE = 200; // Product Finder page size — see keepa.js searchCategory
 
 const DEFAULT_OPTIONS = {
   minPrice: 10,
@@ -19,7 +20,7 @@ const DEFAULT_OPTIONS = {
   maxBSR: 50000,
   minReviews: 10,
   minGrade: "B",
-  pages: 2,
+  maxAsinsPerCategory: 200, // per search unit (a category, or one selected subcategory)
   excludeRestricted: true,
   excludeHazmat: true,
   maxSellers: 5,
@@ -288,7 +289,7 @@ async function runPipeline(products, opts, funnel, tag) {
   // Buy Box + rating data (~4 tokens/ASIN) only for what survived the cheap checks. Merged
   // over the basic product so caller-attached fields (supplier cost etc.) survive.
   const full = await fetchDetails(basicPassed.map((p) => p.asin), funnel, { full: true });
-  if (tag.category) keepaTokens.recordFullAsins(tag.category, basicPassed.length);
+  if (tag.category) keepaTokens.recordFullAsins(tag.searchScope || tag.category, basicPassed.length, products.length);
   const basicByAsin = new Map(basicPassed.map((p) => [p.asin, p]));
   const merged = full.map((p) => ({ ...basicByAsin.get(p.asin), ...p }));
   const preFiltered = runChecks(merged, BUYBOX_CHECKS, opts, funnel, "buybox-filter");
@@ -365,8 +366,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Pauses until the Keepa bucket can cover this category's estimated cost (capped at a
 // full bucket, so a category bigger than the bucket still runs once it's full). This is
 // what lets a scan larger than the plan's bucket run in batches instead of failing midway.
-async function waitForTokens(category) {
-  const needed = keepaTokens.estimateCategoryCost(category);
+async function waitForTokens(category, cap = null) {
+  const needed = keepaTokens.estimateCategoryCost(category, cap);
   for (;;) {
     let state;
     try {
@@ -385,15 +386,74 @@ async function waitForTokens(category) {
   }
 }
 
+// What one root category is searched as: the whole category, or — when only some of its
+// subcategories are selected — each selected subcategory's own Keepa node, so each gets its
+// own ASIN budget. (Searching the root and filtering afterwards spent most of the budget on
+// subcategories nobody selected, e.g. Birds and Horses in a Cats/Dogs pet scan.)
+async function searchUnits(categoryName, subcategories) {
+  const root = { label: categoryName, nodeIds: [CATEGORY_IDS[categoryName]] };
+  if (!subcategories?.length) return [root];
+  let children;
+  try {
+    children = (await getCategoryTree())[categoryName]?.children || [];
+  } catch (err) {
+    console.warn(`[Scanner] Category tree unavailable (${err.message}) — searching ${categoryName} whole`);
+    return [root];
+  }
+  const picked = children.filter((c) => subcategories.includes(c.name));
+  if (!picked.length || picked.length === children.length) return [root];
+  return picked.map((c) => ({ label: `${categoryName} > ${c.name}`, nodeIds: [c.id] }));
+}
+
 // Estimate a scan's Keepa cost against current tokens. `categories` are names; pass
 // `trendingCount` instead for an AI-picked scan whose categories aren't known yet.
-async function preflightTokens({ categories = [], trendingCount = 0 } = {}) {
-  const targets = [...categories, ...Array(trendingCount).fill(null)];
+async function preflightTokens({ categories = [], subcategories = [], trendingCount = 0, maxAsinsPerCategory = DEFAULT_OPTIONS.maxAsinsPerCategory } = {}) {
+  const units = [];
+  for (const c of categories) units.push(...(await searchUnits(c, subcategories)).map((u) => u.label));
+  const targets = [...units, ...Array(trendingCount).fill(null)];
   const state = await getFreshTokenState();
-  return keepaTokens.estimateScan(targets, state);
+  return keepaTokens.estimateScan(targets, state, maxAsinsPerCategory);
 }
 
 // ─── Scans ────────────────────────────────────────────────────────────────────
+
+// Scan one search unit (see searchUnits): pull up to opts.maxAsinsPerCategory ASINs from
+// Keepa, then run the full pipeline. Funnel rows are labelled with the unit.
+async function scanUnit(categoryName, unit, opts) {
+  const funnel = createFunnel(unit.label);
+  try {
+    await waitForTokens(unit.label, opts.maxAsinsPerCategory);
+
+    console.log(`[Scanner] Scanning ${unit.label} (node ${unit.nodeIds.join(",")}), up to ${opts.maxAsinsPerCategory} ASINs`);
+    const allAsins = [];
+    let queryTokens = 0;
+    let pagesFetched = 0;
+    let totalResults = null;
+
+    while (allAsins.length < opts.maxAsinsPerCategory) {
+      const res = await searchCategory(unit.nodeIds, opts, pagesFetched, SEARCH_PAGE_SIZE);
+      allAsins.push(...res.asins);
+      queryTokens += res.tokensConsumed ?? 0;
+      totalResults = res.totalResults;
+      pagesFetched++;
+      if (res.asins.length < SEARCH_PAGE_SIZE) break; // Keepa has no more matches
+    }
+    const pulled = allAsins.slice(0, opts.maxAsinsPerCategory);
+    keepaTokens.recordCategoryQuery(unit.label, queryTokens, new Set(pulled).size, totalResults);
+    funnel.stage("keepa:search", null, pulled.length, [],
+      `Keepa matched ${totalResults ?? "?"}; ${pagesFetched} page(s), ${queryTokens} tokens, cap ${opts.maxAsinsPerCategory}`);
+
+    if (!pulled.length) return attachFunnel([], funnel);
+
+    const products = await fetchDetails(pulled, funnel);
+    const leads = await runPipeline(products, opts, funnel, { category: categoryName, searchScope: unit.label });
+    console.log(`[Scanner] Scan complete for ${unit.label}`);
+    return attachFunnel(leads, funnel);
+  } catch (err) {
+    err.funnel = funnel; // keep the partial funnel so the summary shows how far it got
+    throw err;
+  }
+}
 
 // Scan a single Amazon category for profitable sourcing leads. The returned array carries
 // the scan's funnel as a non-enumerable `.funnel` property (see finalizeScan).
@@ -404,35 +464,26 @@ async function scanCategory(categoryName, options = {}) {
     throw new Error(`Unknown category: "${categoryName}". Valid: ${Object.keys(CATEGORY_IDS).join(", ")}`);
   }
 
+  const units = await searchUnits(categoryName, opts.subcategories);
+  if (units.length === 1) return scanUnit(categoryName, units[0], opts);
+
+  // Several selected subcategories: one search (and ASIN budget) each, merged
   const funnel = createFunnel(categoryName);
-  try {
-    await waitForTokens(categoryName);
-
-    console.log(`[Scanner] Scanning category: ${categoryName}`);
-    const allAsins = [];
-    let queryTokens = 0;
-    let pagesFetched = 0;
-
-    for (let page = 0; page < opts.pages; page++) {
-      const { asins, tokensConsumed } = await searchCategory(categoryName, opts, page);
-      allAsins.push(...asins);
-      queryTokens += tokensConsumed ?? 0;
-      pagesFetched++;
-      if (asins.length < 50) break;
+  const leads = [];
+  const approvalRequired = [];
+  for (const unit of units) {
+    try {
+      const unitLeads = await scanUnit(categoryName, unit, opts);
+      funnel.absorb(unitLeads.funnel);
+      leads.push(...unitLeads);
+      approvalRequired.push(...(unitLeads.approvalRequired || []));
+    } catch (err) {
+      funnel.absorb(err.funnel);
+      err.funnel = funnel;
+      throw err;
     }
-    keepaTokens.recordCategoryQuery(categoryName, queryTokens, new Set(allAsins).size);
-    funnel.stage("keepa:search", null, allAsins.length, [], `${pagesFetched} page(s), ${queryTokens} tokens`);
-
-    if (!allAsins.length) return attachFunnel([], funnel);
-
-    const products = await fetchDetails(allAsins, funnel);
-    const leads = await runPipeline(products, opts, funnel, { category: categoryName });
-    console.log(`[Scanner] Scan complete for ${categoryName}`);
-    return attachFunnel(leads, funnel);
-  } catch (err) {
-    err.funnel = funnel; // keep the partial funnel so the summary shows how far it got
-    throw err;
   }
+  return attachMeta(leads, { funnel, approvalRequired });
 }
 
 // Scan multiple categories sequentially and return a merged, re-ranked list.
