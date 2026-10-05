@@ -263,8 +263,27 @@ function ungatingReason(u) {
 // Everything after Keepa: pre-filter → BSR refresh → profit calc → post-filter → grade →
 // ungating → AI. Shared by category and supplier scans; every stage reports to `funnel`.
 // `tag` is merged into each lead that reaches the ungating check.
+// One product per variation family (Keepa parentAsin): the best-selling variant, by BSR.
+// Runs before the ~4-token Buy Box fetch so tokens aren't spent on near-identical colour /
+// size variants. finalizeScan still dedupes by AI rank later (variants across categories).
+function dedupeVariantsByBsr(products, funnel) {
+  const best = new Map();
+  for (const p of products) {
+    const key = p.parentAsin || p.asin;
+    const cur = best.get(key);
+    if (!cur || (p.bsr ?? Infinity) < (cur.bsr ?? Infinity)) best.set(key, p);
+  }
+  const kept = new Set(best.values());
+  funnel.stage("dedupe:variants-pre-fetch", products.length, kept.size,
+    products.filter((p) => !kept.has(p)).map((p) => {
+      const winner = best.get(p.parentAsin || p.asin);
+      return { asin: p.asin, reason: `variant of parent ${p.parentAsin} — kept ${winner.asin} (BSR ${winner.bsr ?? "-"} vs ${p.bsr ?? "-"})` };
+    }));
+  return products.filter((p) => kept.has(p));
+}
+
 async function runPipeline(products, opts, funnel, tag) {
-  const basicPassed = runChecks(products, BASIC_CHECKS, opts, funnel, "pre-filter");
+  const basicPassed = dedupeVariantsByBsr(runChecks(products, BASIC_CHECKS, opts, funnel, "pre-filter"), funnel);
 
   // Buy Box + rating data (~4 tokens/ASIN) only for what survived the cheap checks. Merged
   // over the basic product so caller-attached fields (supplier cost etc.) survive.

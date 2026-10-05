@@ -181,7 +181,9 @@ const count = (v) => (v != null && v >= 0 ? v : null);
 // Search for products in a category via Product Finder. Only real Product Finder fields
 // work here — the old selection (minPrice/maxPrice/priceTypes/minRating/sortType) isn't
 // part of that API and was silently ignored, so searches came back unfiltered and
-// unsorted. Now: Buy Box price band, BSR ceiling, best sellers first.
+// unsorted. Now: Buy Box price band, BSR ceiling, best sellers first, and one variation per
+// parent — otherwise a single product's colour/size variants (which share a BSR) can fill
+// most of the results.
 // Returns the page's ASINs plus the tokens the call actually cost.
 async function searchCategory(categoryId, { minPrice, maxPrice, maxBSR }, page = 0) {
   const selection = {
@@ -191,6 +193,7 @@ async function searchCategory(categoryId, { minPrice, maxPrice, maxBSR }, page =
     current_SALES_gte: 1,
     current_SALES_lte: maxBSR,
     sort: [["current_SALES", "asc"]],
+    singleVariation: true,
     perPage: 50,
     page,
   };
