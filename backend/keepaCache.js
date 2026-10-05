@@ -50,4 +50,13 @@ function flush() {
   }
 }
 
-module.exports = { get, set, flush };
+// Every unexpired, current-version entry as [key, data] — for estimating how much of a
+// rescan the cache will cover (keepaTokens.js).
+function freshEntries() {
+  const now = Date.now();
+  return Object.entries(load())
+    .filter(([, e]) => e.v === CACHE_VERSION && now - e.fetchedAt <= CACHE_TTL_MS)
+    .map(([key, e]) => [key, e.data]);
+}
+
+module.exports = { get, set, flush, freshEntries };

@@ -366,8 +366,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Pauses until the Keepa bucket can cover this category's estimated cost (capped at a
 // full bucket, so a category bigger than the bucket still runs once it's full). This is
 // what lets a scan larger than the plan's bucket run in batches instead of failing midway.
-async function waitForTokens(category, cap = null) {
-  const needed = keepaTokens.estimateCategoryCost(category, cap);
+async function waitForTokens(unit, cap = null) {
+  const category = unit.label;
+  const needed = keepaTokens.estimateCategoryCost(category, cap, unit.pathName);
   for (;;) {
     let state;
     try {
@@ -390,26 +391,28 @@ async function waitForTokens(category, cap = null) {
 // subcategories are selected — each selected subcategory's own Keepa node, so each gets its
 // own ASIN budget. (Searching the root and filtering afterwards spent most of the budget on
 // subcategories nobody selected, e.g. Birds and Horses in a Cats/Dogs pet scan.)
+// Each unit also carries pathName — its name as it appears in product category paths —
+// so token estimates can tell which of its products are already cached.
 async function searchUnits(categoryName, subcategories) {
-  const root = { label: categoryName, nodeIds: [CATEGORY_IDS[categoryName]] };
-  if (!subcategories?.length) return [root];
-  let children;
+  let tree = null;
   try {
-    children = (await getCategoryTree())[categoryName]?.children || [];
+    tree = (await getCategoryTree())[categoryName];
   } catch (err) {
     console.warn(`[Scanner] Category tree unavailable (${err.message}) — searching ${categoryName} whole`);
-    return [root];
   }
+  const root = { label: categoryName, nodeIds: [CATEGORY_IDS[categoryName]], pathName: tree?.name ?? null };
+  if (!subcategories?.length || !tree) return [root];
+  const children = tree.children || [];
   const picked = children.filter((c) => subcategories.includes(c.name));
   if (!picked.length || picked.length === children.length) return [root];
-  return picked.map((c) => ({ label: `${categoryName} > ${c.name}`, nodeIds: [c.id] }));
+  return picked.map((c) => ({ label: `${categoryName} > ${c.name}`, nodeIds: [c.id], pathName: c.name }));
 }
 
 // Estimate a scan's Keepa cost against current tokens. `categories` are names; pass
 // `trendingCount` instead for an AI-picked scan whose categories aren't known yet.
 async function preflightTokens({ categories = [], subcategories = [], trendingCount = 0, maxAsinsPerCategory = DEFAULT_OPTIONS.maxAsinsPerCategory } = {}) {
   const units = [];
-  for (const c of categories) units.push(...(await searchUnits(c, subcategories)).map((u) => u.label));
+  for (const c of categories) units.push(...(await searchUnits(c, subcategories)));
   const targets = [...units, ...Array(trendingCount).fill(null)];
   const state = await getFreshTokenState();
   return keepaTokens.estimateScan(targets, state, maxAsinsPerCategory);
@@ -422,7 +425,7 @@ async function preflightTokens({ categories = [], subcategories = [], trendingCo
 async function scanUnit(categoryName, unit, opts) {
   const funnel = createFunnel(unit.label);
   try {
-    await waitForTokens(unit.label, opts.maxAsinsPerCategory);
+    await waitForTokens(unit, opts.maxAsinsPerCategory);
 
     console.log(`[Scanner] Scanning ${unit.label} (node ${unit.nodeIds.join(",")}), up to ${opts.maxAsinsPerCategory} ASINs`);
     const allAsins = [];

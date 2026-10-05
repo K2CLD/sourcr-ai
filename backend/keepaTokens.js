@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const keepaCache = require("./keepaCache");
 
 // Keepa token accounting for scan cost estimates. Instead of hardcoding what calls cost,
 // every Keepa response's real `tokensConsumed` is recorded as a rolling average per call
@@ -120,22 +121,47 @@ function expectedFullAsins(category, cap = null) {
   return expectedFrom(s.fullAsinsPerCategory, category, DEFAULT_FULL_ASINS_PER_CATEGORY);
 }
 
-function estimateCategoryCost(category, cap = null) {
+// Fresh cached products (basic / full tier) filed under a category path name, e.g.
+// "Cats" or "Kitchen & Dining" — products a rescan of that unit won't pay for again.
+function cachedInPath(pathName) {
+  const counts = { basic: 0, full: 0 };
+  if (!pathName) return counts;
+  for (const [key, p] of keepaCache.freshEntries()) {
+    if (!p?.categoryPath?.includes(pathName)) continue;
+    if (key.endsWith(":full")) counts.full++;
+    else counts.basic++;
+  }
+  return counts;
+}
+
+// Assumed share of a rescan's results that are new since the cached run (best-seller lists
+// shift a little day to day) — cached products never discount below this.
+const MIN_FRESH_SHARE = 0.1;
+
+// pathName: the unit's category name as it appears in product category paths. With it, the
+// estimate only charges for ASINs the cache (24h) won't serve — a rescan of a unit fetched
+// earlier today costs little more than its search.
+function estimateCategoryCost(category, cap = null, pathName = null) {
   const { categoryQuery, perAsin, perAsinFull } = getCosts();
-  return Math.ceil(
-    categoryQuery.value +
-    expectedAsins(category, cap) * perAsin.value +
-    expectedFullAsins(category, cap) * perAsinFull.value
-  );
+  const asins = expectedAsins(category, cap);
+  const full = expectedFullAsins(category, cap);
+  const cached = cachedInPath(pathName);
+  const freshAsins = Math.max(asins * MIN_FRESH_SHARE, asins - cached.basic);
+  const freshFull = Math.max(full * MIN_FRESH_SHARE, full - cached.full);
+  return Math.ceil(categoryQuery.value + freshAsins * perAsin.value + freshFull * perAsinFull.value);
 }
 
 // Keepa's bucket holds at most one hour of refill.
 const maxBucket = (refillRate) => (refillRate > 0 ? refillRate * 60 : null);
 
 // categories: names, or nulls for not-yet-picked trending categories.
+// targets: units { label, pathName } (or null for a not-yet-picked trending category).
 // cap: ASINs pulled per category (scanner maxAsinsPerCategory).
-function estimateScan(categories, tokenState, cap = null) {
-  const perCategory = categories.map((c) => ({ category: c, tokens: estimateCategoryCost(c, cap) }));
+function estimateScan(targets, tokenState, cap = null) {
+  const perCategory = targets.map((t) => ({
+    category: t?.label ?? null,
+    tokens: estimateCategoryCost(t?.label ?? null, cap, t?.pathName ?? null),
+  }));
   const needed = perCategory.reduce((sum, c) => sum + c.tokens, 0);
   const tokensLeft = tokenState.tokensLeft;
   const refillRate = tokenState.refillRate;
