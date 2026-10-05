@@ -134,9 +134,11 @@ function cachedInPath(pathName) {
   return counts;
 }
 
-// Assumed share of a rescan's results that are new since the cached run (best-seller lists
-// shift a little day to day) — cached products never discount below this.
-const MIN_FRESH_SHARE = 0.1;
+// Assumed share of a rescan's results that are new since the cached run — cached products
+// never discount below this. Measured ~17% on a pets rescan an hour later (best-seller lists
+// shift, and singleVariation can return a different child ASIN of the same product), so 20%
+// keeps the estimate on the high side.
+const MIN_FRESH_SHARE = 0.2;
 
 // pathName: the unit's category name as it appears in product category paths. With it, the
 // estimate only charges for ASINs the cache (24h) won't serve — a rescan of a unit fetched
