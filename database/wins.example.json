@@ -1,0 +1,42 @@
+[
+  {
+    "asin": "B0EXAMPLE01",
+    "category": "kitchen",
+    "outcome": "WIN",
+    "snapshot": {
+      "buyCost": 11.5,
+      "sellPrice": 29.99,
+      "netProfit": 8.9,
+      "roiPct": 77,
+      "bsr": { "now": 3200, "avg30": 3400, "avg90": 3600 },
+      "buyBox90d": { "current": 29.99, "min": 28.49, "max": 30.99, "avg": 29.7 },
+      "fbaSellers": { "now": 4, "avg90": 4 },
+      "amazonOnListingPct90d": 0,
+      "estMonthlySales": 600,
+      "salesPerSeller": 150,
+      "rating": 4.6,
+      "reviewCount": 5400
+    },
+    "notes": "Sold 48 units in 5 weeks at $29.49–29.99. Steady Buy Box, seller count never moved."
+  },
+  {
+    "asin": "B0EXAMPLE02",
+    "category": "toys",
+    "outcome": "LOSS",
+    "snapshot": {
+      "buyCost": 9,
+      "sellPrice": 24.99,
+      "netProfit": 7.1,
+      "roiPct": 79,
+      "bsr": { "now": 900, "avg30": 2500, "avg90": 8000 },
+      "buyBox90d": { "current": 24.99, "min": 15.99, "max": 24.99, "avg": 18.4 },
+      "fbaSellers": { "now": 6, "avg90": 3 },
+      "amazonOnListingPct90d": 40,
+      "estMonthlySales": 1000,
+      "salesPerSeller": 167,
+      "rating": 4.3,
+      "reviewCount": 900
+    },
+    "notes": "Bought into a price spike. Amazon came back in week 2, Buy Box fell to $16, sold at a loss."
+  }
+]

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, shell } = require("electron");
 const path = require("path");
 const { fork } = require("child_process");
 const { autoUpdater } = require("electron-updater");
@@ -35,7 +35,9 @@ function startServer() {
     // the executable itself. server.js resolves its own paths via __dirname
     // and process.resourcesPath, so the default cwd is fine.
     serverProcess = fork(serverPath, [], {
-      env: { ...process.env, PORT: String(PORT) },
+      // SOURCR_DATA_DIR: writable home for runtime data (Keepa cache, token stats) —
+      // the bundled database/ folder sits inside read-only app.asar when packaged.
+      env: { ...process.env, PORT: String(PORT), SOURCR_DATA_DIR: app.getPath("userData") },
       silent: true,
     });
 
@@ -83,6 +85,12 @@ async function createWindow() {
   });
 
   mainWindow.removeMenu();
+  // target="_blank" links (Amazon listings, Seller Central approval requests) open in the
+  // user's default browser, where they're signed in — not in a bare Electron window.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
   mainWindow.loadURL(SERVER_URL);
 
   mainWindow.on("closed", () => {

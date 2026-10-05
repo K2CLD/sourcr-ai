@@ -38,19 +38,23 @@ async function calculateProfit(asin, buyPrice) {
   }
 }
 
+// Standard FBA fee tiers (15% referral + size-agnostic FBA fee by price band)
+function estimateFees(salePrice) {
+  const referralFee = salePrice * 0.15;
+  let fbaFee;
+  if (salePrice < 10) fbaFee = 2.92;
+  else if (salePrice < 20) fbaFee = 3.22;
+  else if (salePrice < 40) fbaFee = 4.56;
+  else if (salePrice < 70) fbaFee = 5.42;
+  else fbaFee = 6.13;
+  return { referralFee, fbaFee, totalFees: referralFee + fbaFee };
+}
+
 // Fallback calculation using standard FBA fee tiers when SellerAmp is unavailable
 function fallbackCalculate(asin, buyPrice) {
   const amazonPrice = buyPrice * 2.5;
-  const referralFee = amazonPrice * 0.15;
+  const { referralFee, fbaFee, totalFees } = estimateFees(amazonPrice);
 
-  let fbaFee;
-  if (amazonPrice < 10) fbaFee = 2.92;
-  else if (amazonPrice < 20) fbaFee = 3.22;
-  else if (amazonPrice < 40) fbaFee = 4.56;
-  else if (amazonPrice < 70) fbaFee = 5.42;
-  else fbaFee = 6.13;
-
-  const totalFees = referralFee + fbaFee;
   const profit = amazonPrice - buyPrice - totalFees;
   const roi = ((profit / buyPrice) * 100).toFixed(1);
   const margin = ((profit / amazonPrice) * 100).toFixed(1);
@@ -110,4 +114,4 @@ async function batchCalculate(products) {
   }));
 }
 
-module.exports = { calculateProfit, checkApproval, batchCalculate, fallbackCalculate };
+module.exports = { calculateProfit, checkApproval, batchCalculate, fallbackCalculate, estimateFees };

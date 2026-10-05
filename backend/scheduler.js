@@ -1,7 +1,7 @@
 require("dotenv").config();
 const cron = require("node-cron");
 const nodemailer = require("nodemailer");
-const { scanMultipleCategories, rankByConfidence } = require("./scanner");
+const { scanMultipleCategories, finalizeScan } = require("./scanner");
 const { summarize } = require("./scorer");
 const { saveScan } = require("./supabase");
 
@@ -111,7 +111,7 @@ async function runScan(categories = DEFAULT_CATEGORIES, options = DEFAULT_SCAN_O
 
   try {
     const results = await scanMultipleCategories(categories, options);
-    const top = rankByConfidence(results); // full `results` still saved below — this is display/alert-only
+    const { top } = finalizeScan(results, { dedupe: false }); // full `results` still saved below — this is display/alert-only
     lastResults = top;
     lastRunAt = new Date().toISOString();
 

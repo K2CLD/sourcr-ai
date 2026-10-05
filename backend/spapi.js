@@ -151,6 +151,8 @@ async function checkViaSpApi(asin) {
     autoUngatable: false,
     method: "sp-api",
     approvalUrl: approvalLink?.resource || null,
+    // e.g. APPROVAL_REQUIRED (an application exists) vs NOT_ELIGIBLE (hard block)
+    reasonCodes: [...new Set(restrictions.flatMap((r) => (r.reasons || []).map((x) => x.reasonCode)).filter(Boolean))],
     notes: restrictions[0]?.reasons?.[0]?.message || "Restricted",
   };
 }
@@ -225,6 +227,65 @@ async function batchGetSalesRanks(asins) {
   return results;
 }
 
+// ─── Product Fees — real referral + FBA fees ──────────────────────────────────
+
+const FEES_BATCH_SIZE = 20;            // getMyFeesEstimates accepts up to 20 items per call
+const FEES_RATE_LIMIT_DELAY_MS = 2100; // 0.5 req/sec (x-amzn-ratelimit-limit on a live call)
+
+const feeAmount = (details, type) =>
+  details?.find((d) => d.FeeType === type)?.FinalFee?.Amount ?? null;
+
+// Amazon's own fee estimate at a given sale price, FBA-fulfilled. items: [{ asin, price }].
+// Returns { asin: { referralFee, fbaFee, closingFee, totalFees } | null } — null when Amazon
+// couldn't estimate that ASIN, so callers can fall back per item.
+async function batchGetFeesEstimates(items) {
+  const results = {};
+  const token = await getAccessToken();
+
+  for (let i = 0; i < items.length; i += FEES_BATCH_SIZE) {
+    const batch = items.slice(i, i + FEES_BATCH_SIZE);
+    const body = batch.map(({ asin, price }) => ({
+      IdType: "ASIN",
+      IdValue: asin,
+      FeesEstimateRequest: {
+        MarketplaceId: MARKETPLACE_ID,
+        IsAmazonFulfilled: true,
+        Identifier: asin,
+        PriceToEstimateFees: { ListingPrice: { CurrencyCode: "USD", Amount: price } },
+      },
+    }));
+
+    try {
+      const res = await requestWithRetry(
+        () =>
+          axios.post(`${SP_API_BASE}/products/fees/v0/feesEstimate`, body, {
+            headers: { "x-amz-access-token": token, "content-type": "application/json" },
+            timeout: 15000,
+          }),
+        { label: "SP-API Fees" }
+      );
+      for (const r of res.data || []) {
+        const asin = r.FeesEstimateIdentifier?.IdValue;
+        if (!asin) continue;
+        const est = r.Status === "Success" ? r.FeesEstimate : null;
+        results[asin] = est
+          ? {
+              referralFee: feeAmount(est.FeeDetailList, "ReferralFee"),
+              fbaFee: feeAmount(est.FeeDetailList, "FBAFees"),
+              closingFee: feeAmount(est.FeeDetailList, "VariableClosingFee"),
+              totalFees: est.TotalFeesEstimate?.Amount ?? null,
+            }
+          : null;
+        if (!est) console.warn(`[SP-API Fees] No estimate for ${asin}: ${r.Error?.Message || r.Status}`);
+      }
+    } catch (err) {
+      console.warn(`[SP-API Fees] Batch failed (${err.response?.status || err.message}) — ${batch.length} ASIN(s) fall back to estimated fees`);
+    }
+    if (i + FEES_BATCH_SIZE < items.length) await sleep(FEES_RATE_LIMIT_DELAY_MS);
+  }
+  return results;
+}
+
 function checkByCategory(category) {
   const profile = CATEGORY_PROFILES[category];
   if (!profile) {
@@ -277,4 +338,5 @@ module.exports = {
   getCatalogItem,
   getSalesRank,
   batchGetSalesRanks,
+  batchGetFeesEstimates,
 };

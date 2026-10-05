@@ -28,3 +28,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Keepa token cost averages
+database/keepa-token-stats.json
+# Your real past outcomes (scorer few-shot examples) — see wins.example.json
+database/wins.json

@@ -28,6 +28,9 @@ export const checkUngating       = (asin, category) => api.post('/ungating', { a
 export const getUngatingStatus   = ()               => api.get('/ungating/status')
 export const getSupplierSources  = (lead)           => api.post('/supplier/sources', { lead })
 
+export const getTokens      = ()      => api.get('/tokens')
+export const estimateTokens = (scope) => api.post('/tokens/estimate', scope)
+
 export const getScans   = (limit)  => api.get('/scans', { params: { limit } })
 export const getScan    = (id)     => api.get(`/scans/${id}`)
 export const deleteScan = (id)     => api.delete(`/scans/${id}`)

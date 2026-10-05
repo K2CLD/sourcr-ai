@@ -10,11 +10,11 @@ require("dotenv").config({ path: envCandidates.find((p) => fs.existsSync(p)) || 
 const express = require("express");
 const cors = require("cors");
 
-const { CATEGORY_IDS, getCategoryTree } = require("./backend/keepa");
+const { CATEGORY_IDS, getCategoryTree, getFreshTokenState } = require("./backend/keepa");
 const { calculateProfit, checkApproval, fallbackCalculate } = require("./backend/selleramp");
 const { scoreProduct, summarize } = require("./backend/scorer");
 const { loadSupplierFile, addManualProduct } = require("./backend/supplier");
-const { scanCategory, scanMultipleCategories, scanTrendingCategories, scanSupplierProducts, scanAsin, rankByConfidence, dedupeVariants, DEFAULT_OPTIONS } = require("./backend/scanner");
+const { scanCategory, scanMultipleCategories, scanTrendingCategories, scanSupplierProducts, scanAsin, finalizeScan, preflightTokens, DEFAULT_OPTIONS } = require("./backend/scanner");
 const { runScan, startScheduler, stopScheduler, getStatus, getLastResults } = require("./backend/scheduler");
 const { analyzeLead, analyzeLeads, quickTake, findSupplierSources } = require("./backend/ai");
 const { checkUngating, hasCredentials } = require("./backend/spapi");
@@ -26,6 +26,27 @@ function autoSaveScan({ categories, options, leads, warning }) {
   saveScan({ categories, options: options || {}, leads, warning }).catch((err) => {
     console.warn(`[Supabase] Failed to auto-save scan: ${err.message}`);
   });
+}
+
+// Blocks a scan the current Keepa balance can't cover, responding 429 with the estimate.
+// A scan bigger than a full token bucket (estimate.batched) is allowed through — the
+// scanner pauses between categories for refills. If the token check itself fails, the
+// scan proceeds rather than being blocked by the check.
+async function tokenGate(res, scope) {
+  let estimate;
+  try {
+    estimate = await preflightTokens(scope);
+  } catch (err) {
+    console.warn(`[Tokens] Pre-flight check failed (${err.message}) — scanning without it`);
+    return true;
+  }
+  console.log(`[Tokens] Pre-flight: ~${estimate.needed} needed, ${estimate.tokensLeft} available${estimate.batched ? " — runs in batches" : ""}`);
+  if (estimate.enough || estimate.batched) return true;
+  res.status(429).json({
+    error: `Not enough Keepa tokens: ~${estimate.needed} needed, ${estimate.tokensLeft} available — ~${estimate.waitMinutes} min until enough.`,
+    preflight: estimate,
+  });
+  return false;
 }
 
 const app = express();
@@ -80,6 +101,39 @@ router.get("/categories/tree", async (req, res) => {
   }
 });
 
+// ─── Keepa tokens ─────────────────────────────────────────────────────────────
+
+// Current balance — served from the values captured off every Keepa response (so it
+// tracks live during a scan); falls back to Keepa's free /token check when that's
+// missing or older than 60s.
+router.get("/tokens", async (req, res) => {
+  try {
+    const t = await getFreshTokenState();
+    res.json({
+      tokensLeft: t.tokensLeft,
+      refillRate: t.refillRate,
+      refillIn: t.refillIn,
+      timestamp: t.updatedAt ? new Date(t.updatedAt).toISOString() : null,
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// Estimated Keepa cost of scanning the given categories, from rolling averages of real
+// token usage. POST /tokens/estimate  { categories?: [...], trendingCount?: number }
+router.post("/tokens/estimate", async (req, res) => {
+  const { categories = [], trendingCount = 0 } = req.body || {};
+  const invalid = categories.filter((c) => !CATEGORY_IDS[c]);
+  if (invalid.length) return res.status(400).json({ error: `Unknown categories: ${invalid.join(", ")}` });
+
+  try {
+    res.json(await preflightTokens({ categories, trendingCount }));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ─── Scan routes ──────────────────────────────────────────────────────────────
 
 // Scan a single category
@@ -92,14 +146,12 @@ router.post("/scan/category", async (req, res) => {
     return res.status(400).json({ error: `Unknown category. Valid: ${Object.keys(CATEGORY_IDS).join(", ")}` });
   }
 
+  if (!(await tokenGate(res, { categories: [category] }))) return;
+
   try {
     const leads = await scanCategory(category, options);
-    const deduped = dedupeVariants(leads);
-    if (deduped.length < leads.length) {
-      console.log(`[Scanner] ${leads.length - deduped.length} lead(s) collapsed as duplicate variants (${leads.length} -> ${deduped.length})`);
-    }
-    const top = rankByConfidence(deduped);
-    res.json({ category, count: top.length, totalMatched: deduped.length, leads: top });
+    const { deduped, top, approvalRequired } = finalizeScan(leads);
+    res.json({ category, count: top.length, totalMatched: deduped.length, leads: top, approvalRequired });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -116,6 +168,8 @@ router.post("/scan/categories", async (req, res) => {
     return res.status(400).json({ error: `Unknown categories: ${invalid.join(", ")}` });
   }
 
+  if (!(await tokenGate(res, { categories }))) return;
+
   try {
     const leads = await scanMultipleCategories(categories, options);
     const warning = leads.partialErrors
@@ -124,12 +178,8 @@ router.post("/scan/categories", async (req, res) => {
     // Full filtered list (every lead that passed the hard gates, not just the top 20) is
     // what gets persisted — only the API response/UI display is curated down to the top 20.
     autoSaveScan({ categories, options, leads, warning });
-    const deduped = dedupeVariants(leads);
-    if (deduped.length < leads.length) {
-      console.log(`[Scanner] ${leads.length - deduped.length} lead(s) collapsed as duplicate variants (${leads.length} -> ${deduped.length})`);
-    }
-    const top = rankByConfidence(deduped);
-    res.json({ categories, count: top.length, totalMatched: deduped.length, leads: top, ...(warning ? { warning } : {}) });
+    const { deduped, top, approvalRequired } = finalizeScan(leads);
+    res.json({ categories, count: top.length, totalMatched: deduped.length, leads: top, approvalRequired, ...(warning ? { warning } : {}) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -141,6 +191,8 @@ router.post("/scan/categories", async (req, res) => {
 router.post("/scan/trending", async (req, res) => {
   const { options, count } = req.body;
 
+  if (!(await tokenGate(res, { trendingCount: count ?? 4 }))) return;
+
   try {
     const { picks, categories, leads } = await scanTrendingCategories(options, { count });
     const warning = leads.partialErrors
@@ -150,12 +202,8 @@ router.post("/scan/trending", async (req, res) => {
     // in scan history without a migration — see database/schema.sql. Full list saved,
     // top 20 returned — same split as /scan/categories.
     autoSaveScan({ categories, options: { ...options, aiPicks: picks }, leads, warning });
-    const deduped = dedupeVariants(leads);
-    if (deduped.length < leads.length) {
-      console.log(`[Scanner] ${leads.length - deduped.length} lead(s) collapsed as duplicate variants (${leads.length} -> ${deduped.length})`);
-    }
-    const top = rankByConfidence(deduped);
-    res.json({ picks, categories, count: top.length, totalMatched: deduped.length, leads: top, ...(warning ? { warning } : {}) });
+    const { deduped, top, approvalRequired } = finalizeScan(leads);
+    res.json({ picks, categories, count: top.length, totalMatched: deduped.length, leads: top, approvalRequired, ...(warning ? { warning } : {}) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -200,12 +248,8 @@ router.post("/scan/supplier", async (req, res) => {
 
     const leads = await scanSupplierProducts(supplierProducts, options);
     autoSaveScan({ categories: ["supplier"], options, leads });
-    const deduped = dedupeVariants(leads);
-    if (deduped.length < leads.length) {
-      console.log(`[Scanner] ${leads.length - deduped.length} lead(s) collapsed as duplicate variants (${leads.length} -> ${deduped.length})`);
-    }
-    const top = rankByConfidence(deduped);
-    res.json({ count: top.length, totalMatched: deduped.length, leads: top });
+    const { deduped, top, approvalRequired } = finalizeScan(leads);
+    res.json({ count: top.length, totalMatched: deduped.length, leads: top, approvalRequired });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

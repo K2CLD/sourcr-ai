@@ -2,7 +2,9 @@ import { useState } from 'react'
 import StatusBar from './components/StatusBar'
 import ScanControls from './components/ScanControls'
 import LeadTable from './components/LeadTable'
+import ApprovalPanel from './components/ApprovalPanel'
 import { scanCategories, scanTrending, getScan } from './api'
+import useTokenEstimate from './useTokenEstimate'
 
 export default function App() {
   const [selected, setSelected]   = useState({ beauty: 'all', kitchen: 'all', health: 'all' })
@@ -13,6 +15,14 @@ export default function App() {
   const [picks, setPicks]         = useState(null) // AI category picks + reasoning, when applicable
   const [totalMatched, setTotalMatched] = useState(null) // full filtered count before the top-20 cut
   const [scanOptions, setScanOptions] = useState(null)
+  const [approvalLeads, setApprovalLeads] = useState([]) // gated, but approval can be requested
+  // AI-driven category discovery is the default per-session behavior — Claude picks which
+  // categories are worth scanning today instead of requiring manual selection every time.
+  const [aiMode, setAiMode]       = useState(true)
+  const tokens = useTokenEstimate({ aiMode, categories: Object.keys(selected), scanning: loading })
+  // Blocks only a confirmed shortfall — an unavailable estimate never blocks scanning,
+  // and a scan too big for one bucket runs in batches instead.
+  const tokenBlocked = !!tokens.estimate && !tokens.estimate.enough && !tokens.estimate.batched
 
   const handleScan = async ({ mode, categories, options }) => {
     setLoading(true)
@@ -21,12 +31,14 @@ export default function App() {
     setPicks(null)
     setTotalMatched(null)
     setLeads([])
+    setApprovalLeads([])
     setScanOptions(options)
     try {
       const res = mode === 'trending'
         ? await scanTrending(options)
         : await scanCategories(categories, options)
       setLeads(res.data.leads || [])
+      setApprovalLeads(res.data.approvalRequired || [])
       setWarning(res.data.warning || null)
       setPicks(res.data.picks || null)
       setTotalMatched(res.data.totalMatched ?? null)
@@ -48,6 +60,7 @@ export default function App() {
     setPicks(null)
     setTotalMatched(null)
     setLeads([])
+    setApprovalLeads([]) // saved scans store sellable leads only
     try {
       const res = await getScan(scanId)
       setLeads(res.data.leads || [])
@@ -63,16 +76,20 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden', background: '#000' }}>
-      <StatusBar onLoadScan={handleLoadScan} />
+      <StatusBar onLoadScan={handleLoadScan} tokens={tokens} scanning={loading} />
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <ScanControls
           onScan={handleScan}
           loading={loading}
+          aiMode={aiMode}
+          setAiMode={setAiMode}
+          tokenBlocked={tokenBlocked}
           selected={selected}
           setSelected={setSelected}
         />
         <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <ApprovalPanel leads={approvalLeads} />
           <LeadTable leads={leads} loading={loading} error={error} warning={warning} picks={picks} totalMatched={totalMatched} scanOptions={scanOptions} />
         </main>
       </div>

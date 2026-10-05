@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const axios = require("axios");
+const { keepaGet } = require("./keepa");
 
 // Parse a supplier CSV price list into a normalized array
 // Expected columns (any order, case-insensitive): name/title, cost/price, upc/ean/barcode, sku, qty/quantity
@@ -37,10 +37,7 @@ function parseSupplierCSV(filePath) {
 // Lookup Amazon ASIN by UPC/EAN barcode using Keepa
 async function lookupAsinByUpc(upc) {
   try {
-    const res = await axios.get("https://api.keepa.com/query", {
-      params: { key: process.env.KEEPA_KEY, domain: 1, type: "barcode", id: upc },
-      timeout: 8000,
-    });
+    const res = await keepaGet("query", { domain: 1, type: "barcode", id: upc }, { timeout: 8000 });
     const asins = res.data.asinList || [];
     return asins[0] || null;
   } catch {
@@ -51,10 +48,7 @@ async function lookupAsinByUpc(upc) {
 // Lookup Amazon ASIN by title search using Keepa
 async function lookupAsinByTitle(title) {
   try {
-    const res = await axios.get("https://api.keepa.com/search", {
-      params: { key: process.env.KEEPA_KEY, domain: 1, type: "product", term: title },
-      timeout: 8000,
-    });
+    const res = await keepaGet("search", { domain: 1, type: "product", term: title }, { timeout: 8000 });
     const asins = res.data.asinList || [];
     return asins[0] || null;
   } catch {

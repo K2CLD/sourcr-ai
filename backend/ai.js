@@ -1,5 +1,8 @@
+const fs = require("fs");
+const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
 const { CATEGORY_IDS } = require("./keepa");
+const { profitIfPriceDrops } = require("./profit");
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_KEY });
 
@@ -38,82 +41,192 @@ Pick the ${count} categories most worth sourcing from today for Amazon FBA resal
   return (parsed.picks || []).filter((p) => categories.includes(p.category));
 }
 
-function buildLeadContext(lead) {
-  const pd = lead.profitData || {};
-  return `
-PRODUCT: ${lead.title || "Unknown"}
-ASIN: ${lead.asin}
-Category: ${lead.category || "Unknown"}
-Amazon URL: ${lead.url || `https://www.amazon.com/dp/${lead.asin}`}
+// ─── WIN / MAYBE / PASS scorer ────────────────────────────────────────────────
 
-FINANCIALS
-  Sale price:    $${lead.price}
-  Buy price:     $${pd.buyPrice ?? "unknown"}
-  Profit/unit:   $${pd.profit}
-  ROI:           ${pd.roi}%
-  Margin:        ${pd.margin}%
-  FBA fee:       $${pd.fbaFee}
-  Referral fee:  $${pd.referralFee}
-  Total fees:    $${pd.totalFees}
+const SCORER_MODEL = "claude-opus-5-5";
 
-DEMAND SIGNALS
-  BSR:           ${lead.bsr?.toLocaleString() ?? "unknown"} (${lead.bsrTrend ?? "unknown"} trend)
-  BSR 30d avg:   ${lead.bsr30?.toLocaleString() ?? "unknown"}
-  BSR 90d avg:   ${lead.bsr90?.toLocaleString() ?? "unknown"}
-  Rating:        ${lead.rating ?? "unknown"} ★
-  Reviews:       ${lead.reviews?.toLocaleString() ?? "unknown"}
+const SCORER_SYSTEM = `You are an expert Amazon FBA sourcer judging whether a product is a WIN: a buy that will sell through within 30-60 days at or near the current price and return the projected profit. Weigh, in order:
+- Price stability: Buy Box price held steady over 90 days. A current price spiked above the 90-day average is a trap.
+- Sell-through: strong sales per seller. More sellers splitting the same sales = slower turns.
+- Competition trend: seller count rising fast = incoming price war.
+- Amazon presence: Amazon on the listing more than 30% of the time is a major risk.
+- BSR consistency: steady BSR beats a one-time spike.
+- Profit margin of safety: would it still profit if the price dropped 15%?
+- Risk flags: hazmat, IP/brand complaint risk, low ratings, seasonality.
+Be strict. Most products should be PASS. Only call WIN when you'd personally put money on it.
 
-PRICE HISTORY
-  Stable:        ${lead.priceStable === true ? "Yes" : lead.priceStable === false ? "No — volatile" : "Unknown"}
-  90d min:       $${lead.priceMin90 ?? "unknown"}
-  90d max:       $${lead.priceMax90 ?? "unknown"}
+Data notes:
+- null means the data is unavailable — treat it as unknown, never as zero or as good news.
+- If buyCostAssumed is true, the buy cost is a placeholder (40% of the sell price), not a real supplier quote, so profit and ROI are hypothetical. Such a product can be MAYBE at best — never WIN.
+- profitIfPriceDrops15pct is pre-computed from the same fees; use it for the margin-of-safety check.`;
 
-COMPETITION
-  Seller count:  ${lead.sellerCount ?? "unknown"}
-  New sellers (30d): ${lead.newSellers30d ?? 0}
-  Restricted:    ${pd.restricted ? "YES" : "No"}
-  Hazmat:        ${pd.hazmat ? "YES" : "No"}
-  Oversized:     ${pd.oversized ? "YES" : "No"}
+const VERDICT_SCHEMA = {
+  type: "object",
+  properties: {
+    verdict: { type: "string", enum: ["WIN", "MAYBE", "PASS"] },
+    score: { type: "integer", description: "0-100" },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    why: { type: "string", description: "1-2 sentences" },
+    risks: { type: "array", items: { type: "string" } },
+    profit_if_price_drops_15pct: { type: "number" },
+  },
+  required: ["verdict", "score", "confidence", "why", "risks", "profit_if_price_drops_15pct"],
+  additionalProperties: false,
+};
 
-SCORE
-  Grade: ${lead.grade}  Score: ${lead.score}/100
-  Strengths: ${lead.reasons?.join(", ") || "none"}
-  Flags: ${lead.flags?.join(", ") || "none"}
-`.trim();
+const round = (n, d = 2) => (Number.isFinite(n) ? Math.round(n * 10 ** d) / 10 ** d : null);
+
+function trend(now, avg90) {
+  if (now == null || avg90 == null) return "unknown";
+  if (avg90 === 0) return now > 0 ? "rising" : "flat";
+  const change = (now - avg90) / avg90;
+  return change > 0.25 ? "rising" : change < -0.25 ? "falling" : "flat";
 }
 
-// Analyze a single lead and return a structured AI verdict
-async function analyzeLead(lead) {
-  const context = buildLeadContext(lead);
+// The structured per-ASIN data Claude judges. Everything here is real data from Keepa,
+// SP-API fees, or the scan — no field is invented when missing (null instead).
+function buildPacket(lead) {
+  const pd = lead.profitData || {};
+  const splitSellers = lead.fbaSellerCount > 0 ? lead.fbaSellerCount : lead.sellerCount;
 
-  const message = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 600,
-    system: `You are an expert Amazon FBA sourcing analyst. You evaluate wholesale and retail arbitrage leads for profitability, demand, and risk. Be direct, specific, and actionable. Use concrete numbers from the data provided. Never invent numbers not given to you.`,
-    messages: [
-      {
-        role: "user",
-        content: `Analyze this Amazon sourcing lead and give me your verdict:\n\n${context}\n\nRespond in this exact JSON format:
-{
-  "verdict": "Strong Buy | Buy | Hold | Pass",
-  "confidence": "High | Medium | Low",
-  "confidenceScore": 0-100 (a number — your overall conviction in this lead as a buy, combining profitability, demand, and risk into one score; used to rank leads against each other, so use the full range rather than clustering everything near 50),
-  "summary": "2-sentence plain-English verdict",
-  "strengths": ["specific strength 1", "specific strength 2"],
-  "risks": ["specific risk 1", "specific risk 2"],
-  "recommendation": "One concrete action sentence — what should the sourcer actually do?",
-  "estimatedMonthlySales": "rough estimate or null if insufficient data",
-  "watchOut": "The single biggest thing to verify before buying"
-}`,
-      },
-    ],
+  return {
+    asin: lead.asin,
+    title: lead.title ?? null,
+    brand: lead.brand ?? null,
+    category: lead.category ?? null,
+    subcategory: lead.subcategory ?? null,
+    buyCost: pd.buyPrice ?? null,
+    buyCostAssumed: pd.buyCostAssumed ?? true,
+    sellPrice: lead.price ?? null,
+    fees: {
+      referral: pd.referralFee ?? null,
+      fba: pd.fbaFee ?? null,
+      total: pd.totalFees ?? null,
+      source: pd.feeSource === "sp-api" ? "Amazon SP-API estimate" : "fee-table estimate",
+    },
+    netProfit: pd.profit ?? null,
+    roiPct: pd.roi ?? null,
+    profitIfPriceDrops15pct: profitIfPriceDrops(pd),
+    bsr: { now: lead.bsr ?? null, avg30: lead.bsr30 ?? null, avg90: lead.bsr90 ?? null },
+    buyBox90d: {
+      current: lead.price ?? null,
+      min: lead.priceMin90 ?? null,
+      max: lead.priceMax90 ?? null,
+      avg: lead.priceAvg90 ?? null,
+      currentVsAvgPct: lead.price && lead.priceAvg90 ? round(((lead.price - lead.priceAvg90) / lead.priceAvg90) * 100, 1) : null,
+    },
+    fbaSellers: {
+      now: lead.fbaSellerCount ?? null,
+      avg30: lead.fbaSellerCount30 ?? null,
+      avg90: lead.fbaSellerCount90 ?? null,
+      trend: trend(lead.fbaSellerCount, lead.fbaSellerCount90),
+    },
+    allNewOffers: { now: lead.sellerCount ?? null, avg90: lead.sellerCount90 ?? null },
+    amazonOnListingPct90d: lead.amazonOnListingPct90 ?? null,
+    amazonBuyBoxSharePct90d: lead.amazonBuyBoxPct90 ?? null,
+    estMonthlySales: lead.monthlySold ?? null,
+    salesPerSeller: lead.monthlySold != null && splitSellers > 0 ? round(lead.monthlySold / splitSellers, 1) : null,
+    hazmat: lead.hazmat ?? pd.hazmat ?? null,
+    rating: lead.rating ?? null,
+    reviewCount: lead.reviews ?? null,
+  };
+}
+
+// ── Few-shot examples: the user's real past wins/losses ──
+// wins.json: [{ asin, category?, snapshot: {...packet-like data}, outcome, notes }]
+// Looked up in the app data dir first (packaged app), then database/.
+const WINS_FILES = [
+  process.env.SOURCR_DATA_DIR && path.join(process.env.SOURCR_DATA_DIR, "wins.json"),
+  path.join(__dirname, "..", "database", "wins.json"),
+].filter(Boolean);
+
+let winsCache = { file: null, mtimeMs: 0, entries: [] };
+
+function loadWins() {
+  for (const file of WINS_FILES) {
+    let stat;
+    try { stat = fs.statSync(file); } catch { continue; }
+    if (winsCache.file === file && winsCache.mtimeMs === stat.mtimeMs) return winsCache.entries;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      const entries = (Array.isArray(parsed) ? parsed : []).filter((e) => e?.asin && e?.outcome);
+      winsCache = { file, mtimeMs: stat.mtimeMs, entries };
+      console.log(`[AI] Loaded ${entries.length} past outcome(s) from ${file}`);
+      return entries;
+    } catch (err) {
+      console.warn(`[AI] Could not read ${file}: ${err.message}`);
+      return [];
+    }
+  }
+  return [];
+}
+
+// Up to `max` examples: same category first, then alternating outcomes so Claude sees
+// both what worked and what didn't.
+function pickExamples(lead, max = 5) {
+  const entries = loadWins().filter((e) => e.asin !== lead.asin);
+  const sameCat = (e) => (lead.category && e.category === lead.category ? 0 : 1);
+  const sorted = [...entries].sort((a, b) => sameCat(a) - sameCat(b));
+
+  const byOutcome = new Map();
+  for (const e of sorted) {
+    const key = String(e.outcome).toUpperCase();
+    if (!byOutcome.has(key)) byOutcome.set(key, []);
+    byOutcome.get(key).push(e);
+  }
+  const picked = [];
+  while (picked.length < max && [...byOutcome.values()].some((q) => q.length)) {
+    for (const q of byOutcome.values()) if (q.length && picked.length < max) picked.push(q.shift());
+  }
+  return picked;
+}
+
+function examplesBlock(examples) {
+  if (!examples.length) return "";
+  const lines = examples.map((e, i) =>
+    `Example ${i + 1} — ${e.asin}${e.category ? ` (${e.category})` : ""}\nData: ${JSON.stringify(e.snapshot ?? {})}\nOutcome: ${e.outcome}${e.notes ? `\nNotes: ${e.notes}` : ""}`
+  );
+  return `\n\nReal past outcomes from this seller (calibrate against these):\n\n${lines.join("\n\n")}`;
+}
+
+// Score one lead. Returns { verdict, score, confidence, why, risks,
+// profit_if_price_drops_15pct, costAssumed, cappedFromWin? }.
+async function analyzeLead(lead) {
+  const packet = buildPacket(lead);
+  const examples = pickExamples(lead);
+
+  const message = await client.beta.messages.create({
+    model: SCORER_MODEL,
+    max_tokens: 8000,
+    // Server-side fallback: if a safety classifier declines, Anthropic re-runs the request
+    // on its recommended fallback model instead of returning the refusal.
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    output_config: {
+      effort: "medium",
+      format: { type: "json_schema", schema: VERDICT_SCHEMA },
+    },
+    system: SCORER_SYSTEM + examplesBlock(examples),
+    messages: [{ role: "user", content: `Judge this product:\n${JSON.stringify(packet, null, 2)}` }],
   });
 
-  const raw = message.content[0].text.trim();
+  if (message.stop_reason === "refusal") throw new Error("Claude declined to score this lead");
+  if (message.stop_reason === "max_tokens") throw new Error("Scorer response was cut off (max_tokens)");
+  const text = message.content.find((b) => b.type === "text")?.text;
+  if (!text) throw new Error("Scorer returned no verdict");
+  const result = JSON.parse(text);
 
-  // Strip markdown code fences if Claude wrapped the JSON
-  const json = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  return JSON.parse(json);
+  result.score = Math.max(0, Math.min(100, Math.round(result.score)));
+  // The pre-computed figure is exact arithmetic on the same fees — prefer it over the model's
+  if (packet.profitIfPriceDrops15pct != null) result.profit_if_price_drops_15pct = packet.profitIfPriceDrops15pct;
+
+  // Hard rule, enforced in code as well as the prompt: no real cost, no WIN.
+  result.costAssumed = packet.buyCostAssumed;
+  if (packet.buyCostAssumed && result.verdict === "WIN") {
+    result.verdict = "MAYBE";
+    result.cappedFromWin = true;
+  }
+  return result;
 }
 
 // Analyze multiple leads and attach AI analysis to each

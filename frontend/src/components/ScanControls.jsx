@@ -383,13 +383,11 @@ function CategoryDropdown({ selected, onChange, tree, treeFailed }) {
   )
 }
 
-export default function ScanControls({ onScan, loading, selected, setSelected }) {
-  // AI-driven category discovery is the default per-session behavior — Claude picks which
-  // categories are worth scanning today (see backend/ai.js pickTrendingCategories) instead
-  // of requiring manual selection every time. The manual dropdown below is still there as
-  // an explicit override.
-  const [aiMode, setAiMode]       = useState(true)
+// aiMode (Claude picks categories — see backend/ai.js pickTrendingCategories) lives in App
+// so the Keepa token estimate can follow it; the manual dropdown is the explicit override.
+export default function ScanControls({ onScan, loading, aiMode, setAiMode, tokenBlocked, selected, setSelected }) {
   const [minROI, setMinROI]       = useState(30)
+  const [minProfit, setMinProfit] = useState(3)
   const [minPrice, setMinPrice]   = useState(10)
   const [maxPrice, setMaxPrice]   = useState(70)
   const [maxBSR, setMaxBSR]       = useState(50000)
@@ -410,12 +408,12 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
   }, [])
 
   const categoryCount = selectionCount(selected, tree)
-  const canScan = !loading && (aiMode || categoryCount > 0)
+  const canScan = !loading && !tokenBlocked && (aiMode || categoryCount > 0)
 
   const handleScan = () => {
     if (!canScan) return
     const options = {
-      minROI, minPrice, maxPrice, maxBSR, minGrade: 'D', pages: 2,
+      minROI, minProfit, minPrice, maxPrice, maxBSR, minGrade: 'D', pages: 2,
       maxSellers, excludeAmazonSeller, minMonthlyUnits, excludeHazmat,
       minReviews, minRating, excludePrivateLabel,
     }
@@ -476,12 +474,15 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
         <div style={s.card}>
           <p style={s.cardTitle}>Profitability</p>
           <div style={{ ...s.section, marginBottom: 'var(--space-4)' }}>
-            <NumInput
-              label="Min ROI"
-              value={minROI}
-              onChange={setMinROI}
-              unit="%" min={0} max={999}
-            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <NumInput
+                label="Min ROI"
+                value={minROI}
+                onChange={setMinROI}
+                unit="%" min={0} max={999}
+              />
+              <NumInput label="Min Profit" value={minProfit} onChange={setMinProfit} unit="$" min={0} step={0.5} />
+            </div>
           </div>
           <div style={{ ...s.section, marginBottom: 'var(--space-4)' }}>
             <span style={s.label}>Price Range</span>
@@ -576,6 +577,11 @@ export default function ScanControls({ onScan, loading, selected, setSelected })
             </>
           )}
         </button>
+        {!loading && tokenBlocked && (
+          <p style={{ fontSize: 11, color: 'var(--status-critical)', textAlign: 'center', marginTop: 10 }}>
+            Not enough Keepa tokens — wait for refill
+          </p>
+        )}
         {!aiMode && categoryCount === 0 && (
           <p style={{ fontSize: 11, color: 'var(--text-disabled)', textAlign: 'center', marginTop: 10 }}>
             Select at least one category

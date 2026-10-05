@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { getHealth } from '../api'
 import ScanHistory from './ScanHistory'
+import TokenBadge from './TokenBadge'
 
-export default function StatusBar({ onLoadScan }) {
+export default function StatusBar({ onLoadScan, tokens, scanning }) {
   const [ok, setOk] = useState(null)
 
   useEffect(() => {
@@ -64,6 +65,7 @@ export default function StatusBar({ onLoadScan }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <TokenBadge {...tokens} scanning={scanning} />
         <ScanHistory onLoad={onLoadScan} />
 
         <span

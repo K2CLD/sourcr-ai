@@ -262,7 +262,14 @@ function WhereToBuy({ lead }) {
   )
 }
 
-const VERDICT_GOOD = ['Strong Buy', 'Buy']
+// WIN/MAYBE/PASS from the current scorer; 'Strong Buy'/'Buy' from scans saved before it
+const VERDICT_GOOD = ['WIN', 'Strong Buy', 'Buy']
+const VERDICT_STYLE = {
+  WIN:   { color: 'var(--brand)',          background: 'rgba(0,230,118,0.1)',   border: 'rgba(0,230,118,0.2)' },
+  MAYBE: { color: 'var(--status-warning)', background: 'transparent',            border: 'var(--status-warning)' },
+  PASS:  { color: 'var(--text-muted)',     background: 'transparent',            border: 'var(--border)' },
+}
+const verdictStyle = (v) => VERDICT_STYLE[v] || (VERDICT_GOOD.includes(v) ? VERDICT_STYLE.WIN : { color: 'var(--ai)', background: 'rgba(144,133,233,0.1)', border: 'rgba(144,133,233,0.25)' })
 
 function ExpandedRow({ lead, colSpan }) {
   const pd = lead.profitData || {}
@@ -450,28 +457,52 @@ function ExpandedRow({ lead, colSpan }) {
             </div>
 
             {!aiResult && !aiLoading && (
-              <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Get a buy / hold / skip verdict from Claude.</p>
+              <p style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Get a WIN / MAYBE / PASS verdict from Claude.</p>
             )}
 
             {aiResult?.error && <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{aiResult.error}</p>}
 
             {aiResult && !aiResult.error && (
               <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span style={{
                     fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 'var(--radius-sm)',
-                    background: VERDICT_GOOD.includes(aiResult.verdict) ? 'rgba(0,230,118,0.1)' : 'rgba(144,133,233,0.1)',
-                    color: VERDICT_GOOD.includes(aiResult.verdict) ? 'var(--brand)' : 'var(--ai)',
-                    border: `1px solid ${VERDICT_GOOD.includes(aiResult.verdict) ? 'rgba(0,230,118,0.2)' : 'rgba(144,133,233,0.25)'}`,
+                    background: verdictStyle(aiResult.verdict).background,
+                    color: verdictStyle(aiResult.verdict).color,
+                    border: `1px solid ${verdictStyle(aiResult.verdict).border}`,
                   }}>
                     {aiResult.verdict}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{aiResult.confidence} confidence</span>
-                  {aiResult.confidenceScore != null && (
-                    <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{aiResult.confidenceScore}/100</span>
+                  {(aiResult.score ?? aiResult.confidenceScore) != null && (
+                    <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{aiResult.score ?? aiResult.confidenceScore}/100</span>
+                  )}
+                  {(aiResult.costAssumed ?? pd.buyCostAssumed) && (
+                    <span
+                      title={aiResult.cappedFromWin
+                        ? 'Claude called this a WIN, but a WIN needs a real buy cost — capped at MAYBE.'
+                        : 'Buy cost is a placeholder (40% of the sale price), not a supplier quote — profit and ROI are hypothetical. A WIN needs a real cost.'}
+                      style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 'var(--radius-sm)', color: 'var(--status-warning)', border: '1px dashed var(--status-warning)' }}
+                    >
+                      Cost assumed{aiResult.cappedFromWin ? ' · capped from WIN' : ''}
+                    </span>
                   )}
                 </div>
-                <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: 580 }}>{aiResult.summary}</p>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: 580 }}>{aiResult.why ?? aiResult.summary}</p>
+                {aiResult.profit_if_price_drops_15pct != null && (
+                  <p className="font-mono" style={{ fontSize: 12, color: aiResult.profit_if_price_drops_15pct > 0 ? 'var(--text-muted)' : 'var(--status-critical)' }}>
+                    Profit if price drops 15%: ${aiResult.profit_if_price_drops_15pct.toFixed(2)}
+                  </p>
+                )}
+                {aiResult.risks?.length > 0 && (
+                  <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 620 }}>
+                    {aiResult.risks.map((r, i) => (
+                      <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, color: 'var(--status-serious)', lineHeight: 1.5 }}>
+                        <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> {r}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {aiResult.recommendation && (
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>{aiResult.recommendation}</p>
                 )}
